@@ -7,16 +7,22 @@
 - 박민서
 - 조영민
 ---
+### 6주차 활동
+- 유스케이스 명세서
+- [🎬Youtube](https://youtu.be/bl0Xim8CdOE)
+- 유스케이스 명세서, 발표 PPT
+- [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/18)
+
 ### 4주차 활동
 - 문제 정의서
 - [🎬Youtube](https://youtu.be/5uXym8xghe4)
-- 문제 정의서 결과, 발표 PPT
+- 문제 정의서, 발표 PPT
 - [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/17)
 
 ### 3주차 활동
 - 브레인스토밍
 - [🎬Youtube](https://youtu.be/U5EZnoMp_jI)
-- 브레인스토밍 결과, 발표 PPT
+- 브레인스토밍 보고서서, 발표 PPT
 - [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/15)
 
 ### 2주차 활동
