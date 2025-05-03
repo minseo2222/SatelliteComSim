@@ -7,7 +7,13 @@
 - 박민서
 - 조영민
 ---
-### 6주차 활동
+### 7~8주차 활동
+- 시퀀스 다이어그램 명세서
+- [🎬Youtube](https://youtu.be/gjChe285upI)
+- 시퀀스 다이어그램 명세서, 발표 PPT
+- [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/23)
+
+### 5~6주차 활동
 - 유스케이스 명세서
 - [🎬Youtube](https://youtu.be/bl0Xim8CdOE)
 - 유스케이스 명세서, 발표 PPT
