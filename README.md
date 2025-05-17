@@ -9,8 +9,8 @@
 ---
 ### 11주차 활동
 - 테스트케이스 계획서
-- [🎬Youtube]()
-- 테스트케이스스 계획서, 발표 PPT
+- [🎬Youtube](https://youtu.be/hrfIZnaTC4A)
+- 테스트케이스 계획서, 발표 PPT
 - [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/24)
 
 ### 7~8주차 활동
