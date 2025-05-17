@@ -7,6 +7,12 @@
 - 박민서
 - 조영민
 ---
+### 11주차 활동
+- 테스트케이스 계획서
+- [🎬Youtube](https://youtu.be/hrfIZnaTC4A)
+- 테스트케이스 계획서, 발표 PPT
+- [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/24)
+
 ### 7~8주차 활동
 - 시퀀스 다이어그램 명세서
 - [🎬Youtube](https://youtu.be/gjChe285upI)
