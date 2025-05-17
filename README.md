@@ -11,7 +11,7 @@
 - 테스트케이스 계획서
 - [🎬Youtube]()
 - 테스트케이스스 계획서, 발표 PPT
-- [PR]()
+- [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/24)
 
 ### 7~8주차 활동
 - 시퀀스 다이어그램 명세서
