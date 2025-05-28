@@ -39,7 +39,7 @@ class InteractiveGLBViewer(QOpenGLWidget):
     def initializeGL(self):
         glEnable(GL_DEPTH_TEST)
         glEnable(GL_TEXTURE_2D)
-
+        glClearColor(0.0, 0.0, 0.0, 1.0)
         v, i, uv, tex = load_model(self.model_path, self.texture_path)
         self.vertices = v
         self.num_indices = len(i)
