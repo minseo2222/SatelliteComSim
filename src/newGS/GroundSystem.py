@@ -71,7 +71,7 @@ class GroundSystemLogic:
         subprocess.Popen(args)
 
     def start_cmd_system(self, on_stdout_callback=None):
-        if self.cmd_process and self.cmd_process.poll() is None:
+        if self.cmd_process and self.cmd_process.poll() is not None:
             self.display_error_message("Command System is already running.")
             return
         cmd = ['python3', '-u', f'{self.ROOTDIR}/Subsystems/cmdGui/CommandSystem.py']
@@ -140,9 +140,11 @@ class NextGenGroundSystem(QMainWindow):
         h_layout = QHBoxLayout(main_widget)
         h_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Left: 3D view & satellite button
-        left_panel = QWidget()
+        # Left: 3D view & control buttons
+        left_panel  = QWidget()
         left_layout = QVBoxLayout(left_panel)
+
+        # 3D view
         self.earth_view = EarthSatelliteView(
             model_path     = str(self.ROOTDIR / "earth.glb"),
             texture_path   = str(self.ROOTDIR / "textures" / "image_0.png"),
@@ -152,18 +154,24 @@ class NextGenGroundSystem(QMainWindow):
         )
         left_layout.addWidget(self.earth_view, stretch=4)
 
-        # load saved satellite parameters
-        saved = self.settings.value("satellite/params", type=dict) or {}
-        if saved:
-            self.earth_view.updateSatelliteParameters(**saved)
+        # Control buttons: Base, Satellite, Comm
+        button_layout = QHBoxLayout()
+        btn_base    = QPushButton("기지국 설정")
+        btn_base.clicked.connect(self.openBaseStationSettings)
+        button_layout.addWidget(btn_base)
 
-        btn_sat = QPushButton("위성 설정")
+        btn_sat     = QPushButton("위성 설정")
         btn_sat.clicked.connect(self.openSatelliteSettings)
-        left_layout.addWidget(btn_sat)
+        button_layout.addWidget(btn_sat)
 
+        btn_comm    = QPushButton("통신 설정")
+        btn_comm.clicked.connect(self.openCommSettings)
+        button_layout.addWidget(btn_comm)
+
+        left_layout.addLayout(button_layout, stretch=1)
         h_layout.addWidget(left_panel, stretch=5)
 
-        # Right: log output & controls
+        # Right: log and controls
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         self.log_output = QTextEdit()
@@ -172,8 +180,9 @@ class NextGenGroundSystem(QMainWindow):
 
         control_box = QGroupBox("제어 / 공격 시뮬레이션")
         control_layout = QVBoxLayout(control_box)
-        form_layout = QFormLayout()
+        form_layout   = QFormLayout()
 
+        # TLM header
         self.cb_tlm_header = QComboBox()
         self.cb_tlm_header.addItems(["1", "2", "Custom"])
         self.cb_tlm_header.currentTextChanged.connect(self.on_tlm_header_changed)
@@ -185,6 +194,7 @@ class NextGenGroundSystem(QMainWindow):
         self.sb_tlm_offset.valueChanged.connect(self.on_tlm_offset_changed)
         form_layout.addRow("TLM Offset", self.sb_tlm_offset)
 
+        # CMD header
         self.cb_cmd_header = QComboBox()
         self.cb_cmd_header.addItems(["1", "2", "Custom"])
         self.cb_cmd_header.currentTextChanged.connect(self.on_cmd_header_changed)
@@ -210,9 +220,10 @@ class NextGenGroundSystem(QMainWindow):
 
         btn_tlm = QPushButton("Start Telemetry")
         btn_tlm.clicked.connect(self.on_start_tlm)
+        control_layout.addWidget(btn_tlm)
+
         btn_cmd = QPushButton("Start Command")
         btn_cmd.clicked.connect(self.on_start_cmd)
-        control_layout.addWidget(btn_tlm)
         control_layout.addWidget(btn_cmd)
 
         btn_clear = QPushButton("커맨드 로그 초기화")
@@ -223,17 +234,25 @@ class NextGenGroundSystem(QMainWindow):
         atk_layout = QHBoxLayout()
         for lbl in ["재밍", "스푸핑", "재전송"]:
             b = QPushButton(lbl)
-            b.clicked.connect(lambda _,m=lbl: self.append_terminal_output(f"[공격] {m} 실행"))
+            b.clicked.connect(lambda _, m=lbl: self.append_terminal_output(f"[공격] {m} 실행"))
             atk_layout.addWidget(b)
         control_layout.addLayout(atk_layout)
 
         right_layout.addWidget(control_box, stretch=2)
         h_layout.addWidget(right_panel, stretch=3)
 
+        # restore saved satellite params
+        saved = self.settings.value("satellite/params", type=dict) or {}
+        if saved:
+            self.earth_view.updateSatelliteParameters(**saved)
+
         self.init_routing_service()
 
+    def openBaseStationSettings(self):
+        self.append_terminal_output("[시스템] 기지국 설정 기능이 아직 구현되지 않았습니다.")
+
     def openSatelliteSettings(self):
-        dlg = SatelliteSettingsDialog(self)
+        dlg  = SatelliteSettingsDialog(self)
         curr = self.earth_view.getCurrentParameters()
         dlg.cb_sat_type.setCurrentText(curr['sat_type'])
         dlg.ds_sat_size.setValue(curr['sat_size'])
@@ -244,7 +263,6 @@ class NextGenGroundSystem(QMainWindow):
         dlg.ds_frequency.setValue(curr['frequency'])
         dlg.ds_antenna_gain.setValue(curr['antenna_gain'])
         dlg.ds_transmit_power.setValue(curr['transmit_power'])
-
         if dlg.exec_() == QDialog.Accepted:
             params = dlg.getParameters()
             self.earth_view.updateSatelliteParameters(**params)
@@ -252,6 +270,9 @@ class NextGenGroundSystem(QMainWindow):
             self.append_terminal_output(
                 f"[시스템] 위성 파라미터 변경됨: 크기={params['sat_size']}, 속도={params['sat_speed']} 등..."
             )
+
+    def openCommSettings(self):
+        self.append_terminal_output("[시스템] 통신 설정 기능이 아직 구현되지 않았습니다.")
 
     def clear_cmd_log(self):
         self.log_output.clear()
