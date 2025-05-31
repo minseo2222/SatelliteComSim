@@ -71,7 +71,7 @@ class GroundSystemLogic:
         subprocess.Popen(args)
 
     def start_cmd_system(self, on_stdout_callback=None):
-        if self.cmd_process and self.cmd_process.poll() is not None:
+        if self.cmd_process and self.cmd_process.poll() is None:
             self.display_error_message("Command System is already running.")
             return
         cmd = ['python3', '-u', f'{self.ROOTDIR}/Subsystems/cmdGui/CommandSystem.py']

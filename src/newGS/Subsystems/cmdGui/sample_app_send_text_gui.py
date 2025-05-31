@@ -47,9 +47,9 @@ class SendTextDialog(QDialog):
             str(CMDUTIL_PATH),
             "--host=127.0.0.1",
             "--port=50000",
-            "--pktid=0x1882",
-            "--cmdcode=2",
-            f"--string=64:{text}"
+            "--pktid=0x18A8",       # SAMPLE_APP_CMD_MID
+            "--cmdcode=10",         # SAMPLE_APP_SEND_TEXT_CC
+            f"--string=128:{text}"  # ✅ 구조체와 동일한 128바이트 크기
         ]
 
         try:

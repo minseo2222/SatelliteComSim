@@ -1,25 +1,26 @@
 import socket
+import struct
 
-# 수신할 IP와 포트 설정 (0.0.0.0은 모든 인터페이스에서 수신)
-LISTEN_IP = '0.0.0.0'
-LISTEN_PORT = 1235
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("0.0.0.0", 1235))  # TO_LAB_TLM_PORT와 일치해야 함
 
-# 전송 대상 IP와 포트 설정 (예: 로컬호스트의 다른 포트)
-DEST_IP = '127.0.0.1'
-DEST_PORT = 50001
+def get_msg_id(data):
+    # CFE 기본: 2바이트 MID, big-endian (MSB first)
+    return struct.unpack_from(">H", data)[0]
 
-# UDP 소켓 생성 (수신용)
-sock_in = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock_in.bind((LISTEN_IP, LISTEN_PORT))
-
-# UDP 소켓 생성 (전송용)
-sock_out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-print(f"Listening on {LISTEN_IP}:{LISTEN_PORT} ...")
+print("Listening on UDP port 1235...")
 while True:
-    data, addr = sock_in.recvfrom(4096)  # 최대 4096 바이트까지 수신
-    print(f"Received {len(data)} bytes from {addr}")
-    # 수신한 데이터를 대상 IP와 포트로 전송
-    sock_out.sendto(data, (DEST_IP, DEST_PORT))
-    print(f"Forwarded data to {DEST_IP}:{DEST_PORT}")
+    data, addr = sock.recvfrom(2048)
+    msg_id = get_msg_id(data)
+
+    if msg_id == 0x08A9:
+        # sample_app 텍스트 텔레메트리일 경우만 출력
+        try:
+            text = data.decode("utf-8", errors="ignore")
+            print(f"[sample_app 텍스트] {text}")
+        except:
+            print("[sample_app 텍스트] (디코딩 실패)")
+    else:
+        # 그 외 MID는 무시하거나 필요시 따로 기록
+        pass
 
