@@ -80,3 +80,137 @@
 [2025-05-31 13:31:40] SAMPLE_APP SEND_TEXT: "zxcasdzxc"
 [2025-05-31 14:19:13.717099] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
 [2025-05-31 14:19:15] SAMPLE_APP SEND_TEXT: "asd"
+[2025-05-31 17:30:13.848320] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-05-31 17:30:15] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-05-31 17:30:58.821714] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-05-31 17:31:00] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-05-31 17:31:15] SAMPLE_APP SEND_TEXT: "hello cse"
+[2025-06-01 05:12:30.125966] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:12:31] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:14:18.727273] GUI Opened for SAMPLE_APP Text Send (via Display Page)
+[2025-06-01 05:14:20] SAMPLE_APP SEND_TEXT: "asdxzc"
+[2025-06-01 05:15:12.042346] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:15:13] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:16:32.229196] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:16:35.776781] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:16:37] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:37:10.781192] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:37:15] SAMPLE_APP SEND_TEXT: "hello world"
+[2025-06-01 05:39:23.192245] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:39:27] SAMPLE_APP SEND_TEXT: "hello world"
+[2025-06-01 05:39:52.345919] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:39:56] SAMPLE_APP SEND_TEXT: "hello world"
+[2025-06-01 05:46:59.413245] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:47:01] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:48:53.271014] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:48:54] SAMPLE_APP SEND_TEXT: "dasdzxc"
+[2025-06-01 05:50:18.337987] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:50:20] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:52:48.282167] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:52:50] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:53:53.648271] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:53:57] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:54:57.078959] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:54:58] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:56:20.797984] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:56:22] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 05:57:37.766523] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 05:57:39] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:06:21.429242] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:06:22] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:07:55.477757] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:07:56] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:08:31.878499] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:08:33] SAMPLE_APP SEND_TEXT: "asddzxc"
+[2025-06-01 06:08:54.934940] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:09:02] SAMPLE_APP SEND_TEXT: "hello world!"
+[2025-06-01 06:10:19.155169] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:10:23] SAMPLE_APP SEND_TEXT: "hello world!"
+[2025-06-01 06:11:01.857601] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:11:06] SAMPLE_APP SEND_TEXT: "hello world!"
+[2025-06-01 06:12:17.589958] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:12:19] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:12:32.834748] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:12:37] SAMPLE_APP SEND_TEXT: "hello minseo"
+[2025-06-01 06:14:56.552702] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:14:58] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:15:05] SAMPLE_APP SEND_TEXT: "hello minseo"
+[2025-06-01 06:15:15.186946] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:15:17] SAMPLE_APP SEND_TEXT: "zxczxczxc"
+[2025-06-01 06:16:09.029128] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:16:10] SAMPLE_APP SEND_TEXT: "asdasd"
+[2025-06-01 06:16:13] SAMPLE_APP SEND_TEXT: "zxczxc"
+[2025-06-01 06:16:20.934161] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:16:23] SAMPLE_APP SEND_TEXT: "minseo"
+[2025-06-01 06:18:02.825488] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:18:05] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:18:13] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:18:31.176088] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:18:32] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:20:28.576722] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:20:30] SAMPLE_APP SEND_TEXT: "asdazxc"
+[2025-06-01 06:20:43.173531] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:20:46] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:20:49] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:20:53] SAMPLE_APP SEND_TEXT: "qweqwe"
+[2025-06-01 06:20:57] SAMPLE_APP SEND_TEXT: "qwasdasdasd"
+[2025-06-01 06:20:59] SAMPLE_APP SEND_TEXT: "qweasd"
+[2025-06-01 06:21:03] SAMPLE_APP SEND_TEXT: "qweasdzxc"
+[2025-06-01 06:21:10.776493] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:21:13] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:23:17.324421] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:23:19] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:23:26] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:24:02.732739] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:24:04] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:24:08] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:24:53.374158] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:24:55] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:25:13.032524] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:25:14] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:26:08.964765] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:26:10] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:26:53.172274] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:26:54] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:28:26.879165] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:28:28] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:50:27.245721] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:50:31] SAMPLE_APP SEND_TEXT: "asdxzc"
+[2025-06-01 06:50:48.027511] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:50:49] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:55:35.211287] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:55:37] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:55:52.638540] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:55:54] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:56:15.375133] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:56:19] SAMPLE_APP SEND_TEXT: "minseo"
+[2025-06-01 06:58:19.421617] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:58:20] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 06:58:30.263068] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 06:58:31] SAMPLE_APP SEND_TEXT: "qweqwe"
+[2025-06-01 06:58:34] SAMPLE_APP SEND_TEXT: "asdasd"
+[2025-06-01 06:58:36] SAMPLE_APP SEND_TEXT: "zxczxc"
+[2025-06-01 07:14:20.121967] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:14:21] SAMPLE_APP SEND_TEXT: "asd"
+[2025-06-01 07:14:35.265928] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:14:36] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:26:39.967576] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:26:41] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:26:46.772483] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:26:48] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:27:08.106570] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:27:09] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:27:20.331233] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:27:22] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:27:25] SAMPLE_APP SEND_TEXT: "asdzxcasd"
+[2025-06-01 07:27:26] SAMPLE_APP SEND_TEXT: "asdzxcasd"
+[2025-06-01 07:27:28] SAMPLE_APP SEND_TEXT: "asdzxcasd"
+[2025-06-01 07:27:29] SAMPLE_APP SEND_TEXT: "asdzxcasd"
+[2025-06-01 07:32:32.889408] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:32:35] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:32:54.834768] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:32:56] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:33:04.934913] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:33:06] SAMPLE_APP SEND_TEXT: "asdzxc"
+[2025-06-01 07:33:39.467649] GUI Opened for SAMPLE_APP Text Send (via Quick Command)
+[2025-06-01 07:33:41] SAMPLE_APP SEND_TEXT: "asdzxc"

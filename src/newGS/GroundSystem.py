@@ -17,21 +17,33 @@ from OpenGL.GLU import *
 from modeling import EarthSatelliteView
 from satellite_setting import SatelliteSettingsDialog
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CmdProcessReader: subprocess stdout을 QThread로 읽어 와 시그널로 전달
+# ──────────────────────────────────────────────────────────────────────────────
 class CmdProcessReader(QThread):
     line_received = pyqtSignal(str)
+
     def __init__(self, process, parent=None):
         super().__init__(parent)
         self.process = process
         self._running = True
+
     def run(self):
         while self._running:
             line = self.process.stdout.readline()
             if not line:
                 break
-            self.line_received.emit(line.rstrip('\n'))
+            # 이미 text=True 옵션이 설정되어 있기 때문에 line은 str 타입
+            self.line_received.emit(line.rstrip("\n"))
+
     def stop(self):
         self._running = False
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GroundSystemLogic: GS 내부 로직 + test4.py 실행/관리 기능 추가
+# ──────────────────────────────────────────────────────────────────────────────
 class GroundSystemLogic:
     TLM_HDR_V1_OFFSET = 4
     TLM_HDR_V2_OFFSET = 4
@@ -49,8 +61,14 @@ class GroundSystemLogic:
         self.ip_addresses_list       = ['All']
         self.spacecraft_names        = ['All']
         self.routing_service         = None
+
+        # 기존 cmd 시스템 관련 변수
         self.cmd_process             = None
         self.cmd_process_reader      = None
+
+        # 아래는 test4.py를 실행·관리하기 위한 변수
+        self.test4_process           = None
+        self.test4_reader            = None
 
     def display_error_message(self, message: str):
         print("[ERROR]", message)
@@ -117,11 +135,55 @@ class GroundSystemLogic:
         self.ip_addresses_list.append(ip)
         self.spacecraft_names.append(name)
 
-    def init_routing_service(self, routing_service):
-        self.routing_service = routing_service
+    def init_routing_service(self, routing_service=None):
+        from RoutingService import RoutingService
+        self.routing_service = routing_service or RoutingService()
         self.routing_service.signal_update_ip_list.connect(self.update_ip_list)
         self.routing_service.start()
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # ★ test4.py 실행 및 stdout 읽기 ★
+    # ──────────────────────────────────────────────────────────────────────────
+    def start_test4(self, on_stdout_callback=None):
+        """
+        test4.py를 백그라운드로 실행하고, 복원된 메시지를
+        on_stdout_callback(예: NextGenGroundSystem.append_terminal_output)으로 전달합니다.
+        """
+        # 이미 실행 중인 경우 다시 실행하지 않음
+        if self.test4_process and self.test4_process.poll() is None:
+            return
+
+        test4_path = os.path.join(self.ROOTDIR, "test4.py")
+        if not os.path.isfile(test4_path):
+            self.display_error_message(f"test4.py를 찾을 수 없습니다: {test4_path}")
+            return
+
+        # '-u' 옵션으로 언버퍼드 모드 실행
+        cmd = ['python3', '-u', test4_path]
+        self.test4_process = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1
+        )
+        self.test4_reader = CmdProcessReader(self.test4_process)
+        if on_stdout_callback:
+            self.test4_reader.line_received.connect(on_stdout_callback)
+        self.test4_reader.start()
+
+    def stop_test4(self):
+        """
+        실행 중인 test4.py 프로세스를 종료하고, QThread도 정리합니다.
+        """
+        if self.test4_process and self.test4_process.poll() is None:
+            self.test4_process.terminate()
+        if self.test4_reader:
+            self.test4_reader.stop()
+            self.test4_reader.quit()
+            self.test4_reader.wait()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# NextGenGroundSystem: 메인 윈도우. test4 출력도 이곳에 표시
+# ──────────────────────────────────────────────────────────────────────────────
 class NextGenGroundSystem(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -182,7 +244,7 @@ class NextGenGroundSystem(QMainWindow):
         control_layout = QVBoxLayout(control_box)
         form_layout   = QFormLayout()
 
-        # TLM header
+        # TLM header 설정
         self.cb_tlm_header = QComboBox()
         self.cb_tlm_header.addItems(["1", "2", "Custom"])
         self.cb_tlm_header.currentTextChanged.connect(self.on_tlm_header_changed)
@@ -194,7 +256,7 @@ class NextGenGroundSystem(QMainWindow):
         self.sb_tlm_offset.valueChanged.connect(self.on_tlm_offset_changed)
         form_layout.addRow("TLM Offset", self.sb_tlm_offset)
 
-        # CMD header
+        # CMD header 설정
         self.cb_cmd_header = QComboBox()
         self.cb_cmd_header.addItems(["1", "2", "Custom"])
         self.cb_cmd_header.currentTextChanged.connect(self.on_cmd_header_changed)
@@ -241,12 +303,20 @@ class NextGenGroundSystem(QMainWindow):
         right_layout.addWidget(control_box, stretch=2)
         h_layout.addWidget(right_panel, stretch=3)
 
-        # restore saved satellite params
+        # 저장된 위성 파라미터 있으면 로드
         saved = self.settings.value("satellite/params", type=dict) or {}
         if saved:
             self.earth_view.updateSatelliteParameters(**saved)
 
+        # ──────────────────────────────────────────────────────────────────────
+        # 기존 코드에 있던 init_routing_service 호출 (반드시 유지)
+        # ──────────────────────────────────────────────────────────────────────
         self.init_routing_service()
+
+        # ──────────────────────────────────────────────────────────────────────
+        # 수정된 부분: GS 실행 직후 test4.py 자동 실행 (복원된 메시지 로그 표시)
+        # ──────────────────────────────────────────────────────────────────────
+        self.gs_logic.start_test4(on_stdout_callback=self.append_terminal_output)
 
     def openBaseStationSettings(self):
         self.append_terminal_output("[시스템] 기지국 설정 기능이 아직 구현되지 않았습니다.")
@@ -282,6 +352,7 @@ class NextGenGroundSystem(QMainWindow):
         QMessageBox.warning(self, "Error", msg)
 
     def append_terminal_output(self, msg: str):
+        # "[시스템]"은 파란색, "[공격]"은 빨간색, 그 외는 검은색
         color = "blue" if msg.startswith("[시스템]") else "red" if msg.startswith("[공격]") else "black"
         self.log_output.append(f"<font color='{color}'>{msg}</font>")
 
@@ -321,22 +392,28 @@ class NextGenGroundSystem(QMainWindow):
         self.gs_logic.sb_tlm_offset_value = v
         self.gs_logic.save_offsets()
 
+    def on_ip_list_updated(self, ip, name):
+        self.gs_logic.update_ip_list(ip, name)
+        self.cb_ips.addItem(ip)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # ★ 누락되었던 init_routing_service 메서드를 반드시 포함해야 합니다.
+    # ──────────────────────────────────────────────────────────────────────────
     def init_routing_service(self):
         from RoutingService import RoutingService
         self.routing_service = RoutingService()
         self.routing_service.signal_update_ip_list.connect(self.on_ip_list_updated)
         self.routing_service.start()
 
-    def on_ip_list_updated(self, ip, name):
-        self.gs_logic.update_ip_list(ip, name)
-        self.cb_ips.addItem(ip)
-
     def closeEvent(self, ev):
+        # GS 창을 닫을 때 test4.py 프로세스도 종료
         self.gs_logic.stop_cmd_system()
+        self.gs_logic.stop_test4()
         if self.gs_logic.routing_service:
             self.gs_logic.routing_service.stop()
         os.kill(0, signal.SIGKILL)
         super().closeEvent(ev)
+
 
 def main():
     from _version import __version__, _version_string
@@ -347,6 +424,7 @@ def main():
     window.raise_()
     window.gs_logic.save_offsets()
     sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
     main()
