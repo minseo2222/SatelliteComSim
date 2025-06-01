@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-sample_app_tlm_page.py (최종 + Status와 BER 계산 분리, 부분 BER 계산)
+sample_app_tlm_page.py (최종 + Status와 BER 계산 분리, 부분 BER 계산, QColor 사용)
 
 - CSV 컬럼명 가정:
   - Sent: id, timestamp, text_representation, core_message_bits, attack_type
   - Recv: id, timestamp, text_representation, core_message_bits
-- 이 GUI에서 BER 및 Status를 직접 계산.
+- 이 GUI에서 BER 및 Status를 직접 계산하여 표시.
 - 송수신 비트열 길이 불일치 시, 짧은 쪽 기준으로 BER 계산하고 표시.
+- Qt.darkOrange 대신 QColor(255, 140, 0) 사용.
 """
 
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QColor # QColor 임포트 추가
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QHeaderView, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QLabel, QMessageBox, QHBoxLayout, QWidget
@@ -26,9 +28,11 @@ class SampleAppTelemetryDialog(QDialog):
     SENT_CSV = BASE_GUI_DIR / "sample_app_sent.csv"
     RECV_CSV = BASE_GUI_DIR / "sample_app_recv.csv"
 
+    DARK_ORANGE_COLOR = QColor(255, 140, 0) # 사용자 정의 어두운 주황색
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Sample App Telemetry Metrics (Partial BER on Length Mismatch)")
+        self.setWindowTitle("Sample App Telemetry Metrics (BER Calculated, QColor Fix)")
         self.setMinimumSize(1150, 600)
 
         main_layout = QVBoxLayout(self)
@@ -47,7 +51,7 @@ class SampleAppTelemetryDialog(QDialog):
             "Status", "BER (%)", "Attack Type"
         ])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        for col_idx in [1, 2, 3, 4, 8]:
+        for col_idx in [1, 2, 3, 4, 8]: 
             self.table.horizontalHeader().setSectionResizeMode(col_idx, QHeaderView.Interactive)
         
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -69,7 +73,7 @@ class SampleAppTelemetryDialog(QDialog):
         self.refresh_data()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh_data)
-        self.timer.start(5000) # 5초마다 자동 새로고침
+        self.timer.start(5000)
 
     def parse_timestamp(self, ts_str):
         if not ts_str: return None
@@ -149,64 +153,50 @@ class SampleAppTelemetryDialog(QDialog):
                 except Exception: item_rtt.setText("Calc Error")
             self.table.setItem(row_idx, 5, item_rtt)
 
-            # --- BER 계산 로직 수정 ---
             calculated_ber_val = -1.0 
             ber_to_display = "-"
             length_mismatch_for_ber = False
 
             if sent_bits and recv_bits:
-                len_sent = len(sent_bits)
-                len_recv = len(recv_bits)
-                
+                len_sent = len(sent_bits); len_recv = len(recv_bits)
                 length_for_ber_calc = 0
-                if len_sent == len_recv:
-                    length_for_ber_calc = len_sent
-                else: # 길이가 다르면
+                if len_sent == len_recv: length_for_ber_calc = len_sent
+                else: 
                     length_for_ber_calc = min(len_sent, len_recv)
-                    length_mismatch_for_ber = True # 길이 불일치 플래그
+                    length_mismatch_for_ber = True
                     print(f"[WARN] BER Calc: Length mismatch for ID {sid}. Sent: {len_sent} bits, Recv: {len_recv} bits. Comparing up to {length_for_ber_calc} bits.")
                 
                 if length_for_ber_calc > 0:
-                    errors = 0
-                    for i in range(length_for_ber_calc):
-                        if sent_bits[i] != recv_bits[i]:
-                            errors += 1
+                    errors = sum(1 for i in range(length_for_ber_calc) if sent_bits[i] != recv_bits[i])
                     calculated_ber_val = errors / length_for_ber_calc
-                elif len_sent == 0 and len_recv == 0: # 둘 다 빈 비트열
-                    calculated_ber_val = 0.0
-                # 한쪽만 비어있으면 length_for_ber_calc는 0, calculated_ber_val은 -1.0 유지
+                elif len_sent == 0 and len_recv == 0: calculated_ber_val = 0.0
             
             if calculated_ber_val >= 0.0:
                 ber_to_display = f"{calculated_ber_val*100:.2f}"
-                if length_mismatch_for_ber:
-                    ber_to_display += " (Partial)" # 부분 비교임을 명시
+                if length_mismatch_for_ber: ber_to_display += " (Partial)"
 
             item_ber = QTableWidgetItem(ber_to_display)
             if ber_to_display != "-":
                 try:
-                    ber_float_for_color = float(ber_to_display.replace(" (Partial)","")) / 100.0 # 숫자 부분만 사용
+                    ber_float_for_color = float(ber_to_display.replace(" (Partial)","")) / 100.0
                     if ber_float_for_color > 0.01 : item_ber.setForeground(Qt.red)
-                    elif ber_float_for_color > 0 : item_ber.setForeground(Qt.darkOrange)
+                    elif ber_float_for_color > 0 : item_ber.setForeground(self.DARK_ORANGE_COLOR) # 수정: QColor 사용
                 except ValueError: pass
             self.table.setItem(row_idx, 7, item_ber)
-            # --- BER 계산 로직 수정 끝 ---
 
-
-            # Status 결정 로직
             final_status_str = "UNKNOWN"; status_color = Qt.black
             if not recv_entry:
                 final_status_str = "LOST"; status_color = Qt.blue
             else: 
                 if not (sent_bits and recv_bits) : 
                      final_status_str = "RECEIVED (Partial Data for BER)"; status_color = Qt.darkGray
-                elif length_mismatch_for_ber: # BER 계산 시 길이 불일치가 있었으면
+                elif length_mismatch_for_ber: 
                     final_status_str = "ERROR (Length Mismatch)"; status_color = Qt.magenta
-                    # BER은 이미 (Partial)로 표시됨
                 elif calculated_ber_val == 0.0:
                     final_status_str = "OK"; status_color = Qt.darkGreen
                 elif calculated_ber_val > 0.0:
-                    final_status_str = "CORRUPTED (BER)"; status_color = Qt.darkOrange
-                else: # calculated_ber_val == -1.0 이고 길이도 같은 경우 (예: sent_bits가 0인데 errors > 0 인 경우 - 비정상)
+                    final_status_str = "CORRUPTED (BER)"; status_color = self.DARK_ORANGE_COLOR # 수정: QColor 사용
+                else: 
                     final_status_str = "ERROR (BER Calc)"; status_color = Qt.red
             
             item_status = QTableWidgetItem(final_status_str)

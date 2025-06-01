@@ -25,7 +25,7 @@ def load_model(filepath, texture_path=None):
     return vertices, indices, texcoords, texture
 
 class EarthSatelliteView(QOpenGLWidget):
-    def __init__(self, model_path='earth.glb', texture_path='textures/image_0.png',
+    def __init__(self, model_path='textures/earth.glb', texture_path='textures/image_0.png',
                  bg_image_path='textures/background.jpg', sat_model_path='textures/satellite.glb',
                  sat_texture_path='textures/satellite_texture.jpg', parent=None):
         super().__init__(parent)
