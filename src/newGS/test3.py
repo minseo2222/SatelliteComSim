@@ -5,7 +5,7 @@ test3.py: cFS에서 들어오는 sample_app 메시지(MID=0x08A9)만 필터링�
 프리앰블(0xAA, 0xAA)을 붙인 뒤 GMSK 변조하여
 UDP(8890)로 송신합니다.
 
-- cFS → test3: UDP 1235번 포트 (변경 없이 유지)
+- cFS → test3: UDP 1235번 포트
 - test3 → test4: UDP 8890번 포트
 """
 
@@ -23,7 +23,8 @@ CFS_LISTEN_PORT  = 1235
 GMSK_SEND_IP     = "127.0.0.1"
 GMSK_SEND_PORT   = 8890
 
-# sample_app 텍스트 텔레메트리 MID
+# **원래대로 되돌린 부분: sample_app 텍스트 텔레메트리 MID**
+# cFS에서 들어오는 패킷의 첫 2바이트가 0x08A9으로 나왔으므로, 이 값을 필터링합니다.
 SAMPLE_APP_MID = 0x08A9
 
 class GMSKModulator(gr.top_block):
@@ -64,6 +65,12 @@ def main():
     while True:
         data, addr = sock_recv.recvfrom(4096)
         msg_id = get_msg_id(data)
+
+        # ───────────────────────────────────────────────────────────────────────
+        # 디버깅용: cFS에서 들어온 패킷의 첫 2바이트와 msg_id를 출력
+        print(f"[test3.py DEBUG] Raw first 2 bytes: {data[:2].hex().upper()}, msg_id = 0x{msg_id:04X}")
+        # ───────────────────────────────────────────────────────────────────────
+
         # sample_app 텍스트(MID=0x08A9)인 경우에만 처리
         if msg_id != SAMPLE_APP_MID:
             continue

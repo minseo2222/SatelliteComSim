@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GroundSystem.py (수정본)
+CommandSystem.py
 
-- Sample App 전송·수신 기록을 ID 기반으로 매칭하여 RTT 등 평가 지표를 보여주는 창 추가
-- Start Telemetry 버튼을 누르면 별도 스레드가 sample_app_recv.csv를 모니터링
-  → 수신 기록이 업데이트될 때마다 GUI도 갱신
+- GroundSystem 명령 GUI를 제공하는 모듈입니다.
+- cFS로 명령을 전송할 수 있으며, Quick Command 기능도 포함합니다.
 """
 
 import csv
@@ -18,7 +17,7 @@ import time
 from pathlib import Path
 from datetime import datetime
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QHeaderView, QPushButton,
     QTableWidgetItem, QWidget, QVBoxLayout, QHBoxLayout,
@@ -31,160 +30,7 @@ from UiCommandsystemdialog import UiCommandsystemdialog
 ROOTDIR = Path(sys.argv[0]).resolve().parent
 
 # --------------------------------------------------------------------------------
-# -- SampleAppTelemetryDialog: 별도 창
-# --------------------------------------------------------------------------------
-class SampleAppTelemetryDialog(QDialog):
-    """
-    Sample App 전용 전송·수신 결과 창
-    - sample_app_sent.csv: 전송 기록 (id, timestamp, text)
-    - sample_app_recv.csv: 수신 기록 (id, timestamp)
-    표(table)에 “ID, 전송 시각, 수신 시각, RTT(ms), 상태(OK/Timeout)” 등을 표시
-    """
-    SENT_CSV = ROOTDIR / "sample_app_sent.csv"
-    RECV_CSV = ROOTDIR / "sample_app_recv.csv"
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Sample App Telemetry Metrics")
-        self.setMinimumSize(700, 400)
-
-        # 레이아웃 구성
-        main_layout = QVBoxLayout(self)
-
-        # 1) 설명 라벨
-        lbl = QLabel("Sample App 전송·수신 매칭 결과 (ID 기준):\n"
-                     "- RTT = (수신 시각 – 전송 시각) [단위: ms]\n"
-                     "- 상태: 수신 기록이 있으면 OK, 없으면 TIMEOUT")
-        main_layout.addWidget(lbl)
-
-        # 2) 테이블: ID, 전송 시각, 수신 시각, RTT(ms), 상태
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Sent Timestamp", "Recv Timestamp", "RTT (ms)", "Status"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        main_layout.addWidget(self.table, stretch=1)
-
-        # 3) 닫기 버튼
-        btn_close = QPushButton("Close")
-        btn_close.clicked.connect(self.close)
-        main_layout.addWidget(btn_close, alignment=Qt.AlignRight)
-
-        # 데이터 로드 및 초기 갱신
-        self.refresh_data()
-
-    def refresh_data(self):
-        """
-        sample_app_sent.csv 와 sample_app_recv.csv 를 읽어서 ID별 매칭 후 테이블 업데이트
-        """
-        # 1) 전송 기록 읽기 → dict {id: (sent_ts, text)}
-        sent_dict = {}
-        if self.SENT_CSV.exists():
-            with open(self.SENT_CSV, "r", newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        sid = int(row["id"])
-                        ts = datetime.fromisoformat(row["timestamp"])
-                        sent_dict[sid] = ts
-                    except Exception:
-                        continue
-
-        # 2) 수신 기록 읽기 → dict {id: recv_ts}
-        recv_dict = {}
-        if self.RECV_CSV.exists():
-            with open(self.RECV_CSV, "r", newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    try:
-                        rid = int(row["id"])
-                        rts = datetime.fromisoformat(row["timestamp"])
-                        # 만약 같은 ID가 여러 번 수신되었다면, "가장 빠른(recv_ts)"만 사용
-                        if rid not in recv_dict or rts < recv_dict[rid]:
-                            recv_dict[rid] = rts
-                    except Exception:
-                        continue
-
-        # 3) 전체 ID 리스트: 전송 ID 기준으로
-        all_ids = sorted(sent_dict.keys())
-
-        # 4) 테이블 초기화
-        self.table.setRowCount(len(all_ids))
-        for row_idx, sid in enumerate(all_ids):
-            sent_ts = sent_dict.get(sid)
-            recv_ts = recv_dict.get(sid, None)
-
-            # 컬럼 0: ID
-            item_id = QTableWidgetItem(str(sid))
-            self.table.setItem(row_idx, 0, item_id)
-
-            # 컬럼 1: Sent Timestamp
-            item_sent = QTableWidgetItem(sent_ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-            self.table.setItem(row_idx, 1, item_sent)
-
-            # 컬럼 2: Recv Timestamp (없으면 "-")
-            if recv_ts:
-                item_recv = QTableWidgetItem(recv_ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3])
-            else:
-                item_recv = QTableWidgetItem("-")
-            self.table.setItem(row_idx, 2, item_recv)
-
-            # 컬럼 3: RTT (ms) 계산
-            if recv_ts:
-                delta = recv_ts - sent_ts
-                rtt_ms = int(delta.total_seconds() * 1000)
-                item_rtt = QTableWidgetItem(str(rtt_ms))
-            else:
-                item_rtt = QTableWidgetItem("-")
-            self.table.setItem(row_idx, 3, item_rtt)
-
-            # 컬럼 4: Status ("OK" or "TIMEOUT")
-            status = "OK" if recv_ts else "TIMEOUT"
-            item_status = QTableWidgetItem(status)
-            # 색상 표시: OK는 초록, TIMEOUT은 붉은색
-            if status == "OK":
-                item_status.setForeground(Qt.darkGreen)
-            else:
-                item_status.setForeground(Qt.red)
-            self.table.setItem(row_idx, 4, item_status)
-
-        self.table.resizeRowsToContents()
-
-
-# --------------------------------------------------------------------------------
-# -- TelemetryListener: 백그라운드에서 sample_app_recv.csv를 폴링하며 갱신
-# --------------------------------------------------------------------------------
-class TelemetryListener(threading.Thread):
-    """
-    별도 스레드로 동작하면서 일정 주기(예: 1초)로 sample_app_recv.csv 파일을
-    읽어들이고 수정시간이 바뀌었으면, 연결된 GUI(Dialog)에 알림(callback)을 호출
-    """
-    POLL_INTERVAL = 1.0  # 초 단위
-
-    def __init__(self, on_update_callback):
-        super().__init__(daemon=True)
-        self.on_update = on_update_callback
-        self.last_mtime = None
-        self.stop_flag = False
-
-    def run(self):
-        recv_csv = SampleAppTelemetryDialog.RECV_CSV
-        while not self.stop_flag:
-            if recv_csv.exists():
-                mtime = recv_csv.stat().st_mtime
-                # 파일이 새로 생성되었거나 수정되었으면 콜백
-                if self.last_mtime is None or mtime > self.last_mtime:
-                    self.last_mtime = mtime
-                    # UI 스레드 쪽으로 안전하게 시그널/콜백
-                    self.on_update()
-            time.sleep(self.POLL_INTERVAL)
-
-    def stop(self):
-        self.stop_flag = True
-
-
-# --------------------------------------------------------------------------------
-# -- CommandSystem 클래스 수정본
+# -- CommandSystem 클래스
 # --------------------------------------------------------------------------------
 class CommandSystem(QDialog, UiCommandsystemdialog):
     def __init__(self):
@@ -193,21 +39,15 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
         self.move(800, 100)
         self.mcu = None
 
-        # 1) “Sample App Telemetry Metrics” 버튼 추가
-        self.btn_sample_metrics = QPushButton("Sample App Metrics")
-        # start/stop 버튼 영역 (예: “Start Telemetry” 버튼 옆에 추가)
-        # self.grp_control은 UI 파일에서 start/stop이 포함된 QGroupBox라고 가정
-        # (실제 UI 구조에 맞게 적절히 레이아웃에 추가하면 됩니다.)
-        # 예시: self.grp_control.layout().addWidget(self.btn_sample_metrics)
-        self.grp_control.layout().addWidget(self.btn_sample_metrics)
-
-        self.btn_sample_metrics.clicked.connect(self.open_sample_metrics_dialog)
-        self.sample_dialog = None
-
-        # 2) Telemetry 결과가 CSV로 기록될 때마다 Dialog를 갱신하기 위한 리스너
+        # TelemetryListener는 더 이상 사용하지 않습니다.
         self.telemetry_listener = None
 
     def process_button_generic(self, idx):
+        """
+        [Display Page] 버튼 클릭 시 호출됩니다.
+        만약 'Sample App' 계열 명령이면 해당 GUI를 호출하고,
+        그렇지 않으면 기존 방식대로 cFS 명령 GUI를 실행합니다.
+        """
         if cmd_page_is_valid[idx]:
             app_name = self.tbl_cmd_sys.item(idx, 0).text().strip()
 
@@ -235,6 +75,9 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
 
     @staticmethod
     def check_params(idx):
+        """
+        Quick Command에 필요한 파라미터 파일이 존재하는지 확인합니다.
+        """
         pickle_file = f'{ROOTDIR}/ParameterFiles/{quick_param[idx]}'
         try:
             with open(pickle_file, 'rb') as pickle_obj:
@@ -244,6 +87,11 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
             return False
 
     def process_quick_button(self, idx):
+        """
+        Quick Button 클릭 시 호출됩니다.
+        Sample App 계열이면 해당 GUI를 호출하고,
+        그렇지 않으면 파라미터 유무에 따라 MiniCmdUtil을 통해 명령을 전송합니다.
+        """
         if cmd_page_is_valid[idx] and quick_indices[idx] >= 0:
             q_idx = quick_indices[idx]
             pkt_id = self.tbl_cmd_sys.item(idx, 1).text()
@@ -271,56 +119,24 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
                 cmd_args = shlex.split(launch_string)
                 subprocess.Popen(cmd_args)
             else:
-                self.mcu = MiniCmdUtil(address, quick_port[q_idx],
-                                       quick_endian[q_idx], pkt_id,
-                                       quick_code[q_idx])
+                self.mcu = MiniCmdUtil(
+                    address, quick_port[q_idx],
+                    quick_endian[q_idx], pkt_id,
+                    quick_code[q_idx]
+                )
                 send_success = self.mcu.send_packet()
                 print("Command sent successfully:", send_success)
 
     def on_start_telemetry(self):
         """
-        “Start Telemetry” 버튼 클릭 시 호출.
-        기존 TelemetrySystem을 띄우는 로직 + 별도 listener 스레드 시작
+        “Start Telemetry” 버튼 클릭 시 호출됩니다.
+        기존 TelemetrySystem을 실행하는 로직을 수행합니다.
         """
-        # (기존의 TelemetrySystem 실행 로직)
         self.start_tlm_system(self.cb_ips.currentText())
-
-        # TelemetryListener 스레드가 이미 실행 중이면 중지
-        if self.telemetry_listener:
-            self.telemetry_listener.stop()
-            self.telemetry_listener = None
-
-        # SampleAppTelemetryDialog가 열려 있으면 먼저 닫고 다시 생성
-        if self.sample_dialog and self.sample_dialog.isVisible():
-            self.sample_dialog.close()
-            self.sample_dialog = None
-
-        # TelemetryListener 생성 → sample_app_recv.csv 감시
-        self.telemetry_listener = TelemetryListener(on_update_callback=self._on_recv_csv_update)
-        self.telemetry_listener.start()
-
-    def _on_recv_csv_update(self):
-        """
-        sample_app_recv.csv가 갱신되었을 때 호출되는 콜백
-        → GUI가 띄워져 있으면 테이블을 갱신
-        """
-        if self.sample_dialog and self.sample_dialog.isVisible():
-            # 메인 스레드에서 GUI 갱신해야 하므로 QTimer.singleShot 사용
-            QTimer.singleShot(0, self.sample_dialog.refresh_data)
-
-    def open_sample_metrics_dialog(self):
-        """
-        “Sample App Metrics” 버튼 클릭 시 호출.
-        전용 창을 열고, TelemetryListener가 있으면 GUI가 자동 갱신되도록 연결
-        """
-        if not self.sample_dialog:
-            self.sample_dialog = SampleAppTelemetryDialog(self)
-        self.sample_dialog.refresh_data()
-        self.sample_dialog.show()
 
     def start_tlm_system(self, selected_spacecraft):
         """
-        기존 TelemetrySystem 실행 로직 (변경 없음)
+        TelemetrySystem을 실행합니다.
         """
         subscription = '--sub=GroundSystem'
         if selected_spacecraft != 'All':
@@ -335,7 +151,7 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
 
     def start_cmd_system(self, on_stdout_callback=None):
         """
-        기존 CommandSystem 실행 로직 (변경 없음)
+        명령 시스템(자체 CommandSystem 프로세스)을 실행합니다.
         """
         if self.cmd_process and self.cmd_process.poll() is None:
             self.display_error_message("Command System is already running.")
@@ -353,7 +169,7 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
 
     def on_cmd_header_changed(self, txt):
         """
-        기존 로직 그대로
+        명령 헤더가 변경되면 호출됩니다.
         """
         self.gs_logic.set_cmd_offsets(txt)
         self.sb_cmd_pri.setEnabled(txt == "Custom")
@@ -363,26 +179,38 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
         self.gs_logic.save_offsets()
 
     def on_cmd_offset_pri_changed(self, v):
+        """
+        우선순위 오프셋 변경 시 호출됩니다.
+        """
         self.gs_logic.sb_cmd_offset_pri_value = v
         self.gs_logic.save_offsets()
 
     def on_cmd_offset_sec_changed(self, v):
+        """
+        세컨드 오프셋 변경 시 호출됩니다.
+        """
         self.gs_logic.sb_cmd_offset_sec_value = v
         self.gs_logic.save_offsets()
 
     def on_tlm_header_changed(self, txt):
+        """
+        텔레메트리 헤더가 변경되면 호출됩니다.
+        """
         self.gs_logic.set_tlm_offset(txt)
         self.sb_tlm_offset.setEnabled(txt == "Custom")
         self.sb_tlm_offset.setValue(self.gs_logic.sb_tlm_offset_value)
         self.gs_logic.save_offsets()
 
     def on_tlm_offset_changed(self, v):
+        """
+        텔레메트리 오프셋 변경 시 호출됩니다.
+        """
         self.gs_logic.sb_tlm_offset_value = v
         self.gs_logic.save_offsets()
 
     def clear_cmd_log(self):
         """
-        기존 로직 그대로
+        커맨드 로그를 초기화합니다.
         """
         self.log_output.clear()
         self.log_output.append(f"<font color='blue'>[시스템] 커맨드 로그가 초기화되었습니다.</font>")
@@ -392,26 +220,26 @@ class CommandSystem(QDialog, UiCommandsystemdialog):
 
     def append_terminal_output(self, msg: str):
         """
-        기존 로직 그대로
+        터미널 출력 로그를 로그 창에 추가합니다.
         """
         color = "blue" if msg.startswith("[시스템]") else "red" if msg.startswith("[공격]") else "black"
         self.log_output.append(f"<font color='{color}'>{msg}</font>")
 
     def on_start_tlm(self):
         """
-        UI에서 “Start Telemetry” 버튼과 연결하도록, 이 메소드로 바꿔 줍니다.
-        (기존 on_start_tlm_system → on_start_telemetry로 리다이렉션)
+        UI에서 “Start Telemetry” 버튼과 연결된 슬롯입니다.
         """
         self.on_start_telemetry()
 
     def closeEvent(self, ev):
         """
-        프로그램 종료 시 TelemetryListener를 깨끗이 종료
+        프로그램 종료 시 호출됩니다.
         """
         if self.mcu:
-            self.mcu.mm.close()
-        if self.telemetry_listener:
-            self.telemetry_listener.stop()
+            try:
+                self.mcu.mm.close()
+            except Exception:
+                pass
         super().closeEvent(ev)
 
 
@@ -423,7 +251,7 @@ if __name__ == "__main__":
     command = CommandSystem()
     tbl = command.tbl_cmd_sys
 
-    # 기존 CSV 및 동적 테이블 로드 로직 그대로
+    # CSV 및 동적 테이블 로드 로직 (command-pages.txt)
     cmd_page_is_valid, cmdPageDesc, cmdPageDefFile, cmdPageAppid, \
     cmdPageEndian, cmdClass, cmdPageAddress, cmdPagePort = ([] for _ in range(8))
 
