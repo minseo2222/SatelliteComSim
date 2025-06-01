@@ -1,210 +1,193 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-test4.py: UDP(8890)로 들어오는 GMSK complex64 바이트를 수신하여
-1) GMSK 복조 → 비트 스트림
-2) shift(0~8비트)로 프리앰블(0xAA, 0xAA) 위치 찾기
-3) 8비트씩 묶어 원본 바이트 restored 생성
-4) restored 전체를 순회하며 “(숫자열):(ASCII 메시지)” 구조를 찾아 파싱
-5) sample_app_recv.csv 에 [ID, timestamp, text, recv_bits] 한 줄을 추가
-6) 메시지 본문만 UDP(50001)로 GS GUI에 전달
+test4.py: test3로부터 GMSK 변조된 데이터를 수신하여 복조.
+          GMSK 프리앰블 제거 후 남은 cFS 원본 CCSDS 패킷에서
+          순수 "ID:메시지" 문자열을 추출하여 core_message_bits로 CSV에 기록.
+          현재 적용된 공격 유형(attack_mode.txt 참조)도 함께 기록.
 """
 
 import socket
+import datetime
+import os
 import csv
-import time
+from pathlib import Path
 import numpy as np
 from gnuradio import gr, blocks, digital
-from pathlib import Path
-from datetime import datetime
 
-# ------------------------------------------------------------------------------
-# 1) UDP 포트 설정
-# ------------------------------------------------------------------------------
-GMSK_LISTEN_PORT = 8890      # test3 → test4 GMSK 수신 포트
-GS_SEND_IP       = '127.0.0.1'
-GS_SEND_PORT     = 50001     # test4 → GS GUI 전송 포트
+LISTEN_IP_FROM_TEST3 = "0.0.0.0"
+LISTEN_PORT_FROM_TEST3 = 8890
 
-# ------------------------------------------------------------------------------
-# 2) sample_app_recv.csv 파일 경로 설정
-# ------------------------------------------------------------------------------
-BASE_DIR     = Path(__file__).resolve().parent            # newGS
-RECV_CSV_DIR = BASE_DIR / "Subsystems" / "cmdGui"          # newGS/Subsystems/cmdGui
-RECV_CSV     = RECV_CSV_DIR / "sample_app_recv.csv"
+ROOTDIR = Path(__file__).resolve().parent
+RECV_CSV_PATH = ROOTDIR / "Subsystems" / "cmdGui" / "sample_app_recv.csv" # 경로 통일
+ATTACK_FILE = ROOTDIR / "attack_mode.txt" # test1, test3이 참조하는 공격 설정 파일
 
-# ------------------------------------------------------------------------------
-# 3) 비트 → 바이트 / 프리앰블 감지 함수들
-# ------------------------------------------------------------------------------
-def bits_to_bytes(bit_list, start_bit):
-    out = bytearray()
-    n = len(bit_list)
-    for i in range(start_bit, n, 8):
-        if i + 8 > n:
-            break
-        byte = 0
-        for b in range(8):
-            byte = (byte << 1) | (bit_list[i + b] & 0x1)
-        out.append(byte)
-    return bytes(out)
+GMSK_RX_PREAMBLE = b'\xAA\xAA'
+CFS_CCSDS_PRIMARY_HEADER_LENGTH = 6
+CFS_SAMPLE_APP_APID = 0x0A9
+CFS_SAMPLE_APP_INTERNAL_PAYLOAD_PREFIX_LEN = 10
+CFS_SAMPLE_APP_TEXT_PREFIX = "수신한 텍스트: "
 
-def find_preamble(bit_list):
-    target = [1,0,1,0,1,0,1,0] * 2  # 0xAA 0xAA
-    L = len(bit_list)
-    for i in range(0, L - 16 + 1):
-        if bit_list[i:i+16] == target:
-            return i
-    return -1
+def demodulate_gmsk_signal(complex_samples_array: np.ndarray) -> bytes:
+    sps = 2
+    fg = gr.top_block(name="GMSK_Demod_Flowgraph_Test4")
+    src = blocks.vector_source_c(list(complex_samples_array), repeat=False)
+    gmsk_demod = digital.gmsk_demod(samples_per_symbol=sps, verbose=False, log=False)
+    unpacked_to_packed = blocks.unpacked_to_packed_bb(1, gr.GR_MSB_FIRST)
+    sink = blocks.vector_sink_b()
+    fg.connect(src, gmsk_demod, unpacked_to_packed, sink)
+    fg.run()
+    return bytes(sink.data())
 
-# ------------------------------------------------------------------------------
-# 4) GMSK 복조용 클래스
-# ------------------------------------------------------------------------------
-class GMSKDemodulator(gr.top_block):
-    def __init__(self, input_samples):
-        super().__init__()
-        self.src   = blocks.vector_source_c(input_samples, False)
-        self.demod = digital.gmsk_demod(samples_per_symbol=2)
-        self.sink  = blocks.vector_sink_b()
-        self.connect(self.src, self.demod)
-        self.connect(self.demod, self.sink)
+def get_attack_mode(): # test1.py의 함수와 동일
+    try:
+        if ATTACK_FILE.exists():
+            with open(ATTACK_FILE, "r", encoding="utf-8") as f:
+                return f.read().strip().lower()
+        else: return "none"
+    except Exception as e:
+        print(f"[WARN] Could not read {ATTACK_FILE}: {e}"); return "none"
 
-# ------------------------------------------------------------------------------
-# 5) “ID:메시지” 파싱 보조 함수
-# ------------------------------------------------------------------------------
-def parse_id_and_body(restored_bytes: bytes):
-    """
-    restored_bytes 내부에서 “(숫자열):(ASCII 텍스트)” 구조를 찾아 반환.
-    반환: (parsed_id: int or None, parsed_body: str)
-    """
-    n = len(restored_bytes)
-    for sep_idx in range(n):
-        if restored_bytes[sep_idx] == 0x3A:  # ':' 바이트 (0x3A)
-            # 콜론 바로 앞부터 역순으로 숫자(ASCII) 추출
-            i = sep_idx - 1
-            id_bytes = bytearray()
-            while i >= 0 and 0x30 <= restored_bytes[i] <= 0x39:
-                id_bytes.insert(0, restored_bytes[i])
-                i -= 1
+def bytes_to_bitstring(b: bytes) -> str:
+    return ''.join(f'{byte:08b}' for byte in b)
 
-            if len(id_bytes) == 0:
-                continue
-
-            try:
-                id_str = id_bytes.decode('ascii')
-                parsed_id = int(id_str)
-            except:
-                continue
-
-            # 메시지 본문: 콜론 뒤(restored_bytes[sep_idx+1:])를 UTF-8로 디코딩
-            body_bytes = restored_bytes[sep_idx+1:]
-            try:
-                parsed_body = body_bytes.decode('utf-8', errors='ignore')
-            except:
-                parsed_body = ""
-            return (parsed_id, parsed_body)
-
-    return (None, "")
-
-# ------------------------------------------------------------------------------
-# 6) 문자를 이진 문자열로 바꾸는 헬퍼
-# ------------------------------------------------------------------------------
-def text_to_bitstring(text: str) -> str:
-    """
-    text(문자열)를 UTF-8 인코딩한 뒤, 각 바이트를 8비트 이진 문자열로 합쳐서 반환
-    예: "A" → b'\x41' → "01000001"
-    """
-    b = text.encode("utf-8", errors="ignore")
-    return "".join(f"{byte:08b}" for byte in b)
-
-# ------------------------------------------------------------------------------
-# 7) main 루프
-# ------------------------------------------------------------------------------
-def main():
-    # 7.1) UDP 바인딩 (GMSK 바이트 수신)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('0.0.0.0', GMSK_LISTEN_PORT))
-    print(f"[test4.py] Listening on UDP port {GMSK_LISTEN_PORT} ...")
-
-    # 7.2) CSV 디렉토리/파일 준비
-    if not RECV_CSV_DIR.exists():
-        RECV_CSV_DIR.mkdir(parents=True, exist_ok=True)
-
-    # 헤더 보장: 없으면 만들어 둔다
-    if not RECV_CSV.exists():
-        with open(RECV_CSV, 'w', newline='', encoding='utf-8') as f:
+def ensure_recv_csv_header():
+    if not RECV_CSV_PATH.exists() or RECV_CSV_PATH.stat().st_size == 0:
+        RECV_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(RECV_CSV_PATH, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["id", "timestamp", "text", "recv_bits"])
-        print(f"[test4.py] Created new CSV file: {RECV_CSV}")
+            # 수정된 CSV 헤더: attack_type 컬럼 추가
+            writer.writerow(["id", "timestamp", "text_representation", "core_message_bits", "attack_type"])
+        print(f"[DEBUG] Created CSV header for received data at {RECV_CSV_PATH}")
+
+# log_to_recv_csv 함수 시그니처 변경: attack_type 인자 추가
+def log_to_recv_csv(log_id, timestamp_str, text_representation, core_message_bits, attack_type):
+    ensure_recv_csv_header()
+    with open(RECV_CSV_PATH, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        # 수정된 컬럼에 맞춰 데이터 기록
+        writer.writerow([str(log_id), timestamp_str, text_representation, core_message_bits, attack_type])
+    print(f"[DEBUG] Logged to RECV CSV: ID='{str(log_id)}', Text='{text_representation}', Core Message Bits={len(core_message_bits)}, Attack='{attack_type}'")
+
+def main():
+    sock_recv_from_test3 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock_recv_from_test3.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock_recv_from_test3.bind((LISTEN_IP_FROM_TEST3, LISTEN_PORT_FROM_TEST3))
+    print(f"[test4.py] Listening for GMSK data from test3 on UDP {LISTEN_IP_FROM_TEST3}:{LISTEN_PORT_FROM_TEST3} ...")
+    print(f"[test4.py] Attack mode file: {ATTACK_FILE.resolve()}")
+
+
+    t4_processing_seq_count = 0
 
     while True:
-        data, addr = sock.recvfrom(65536)
-        print(f"\n[test4.py] Received {len(data)} GMSK bytes from {addr}")
+        gmsk_modulated_data_from_test3, test3_addr = sock_recv_from_test3.recvfrom(65536)
+        print(f"\n[test4.py] Received {len(gmsk_modulated_data_from_test3)} GMSK bytes from test3 ({test3_addr})")
 
-        # 바이트→complex64 배열로 변환
-        num_complex   = len(data) // 8
-        complex_array = np.frombuffer(data, dtype=np.complex64, count=num_complex)
-        complex_list  = complex_array.tolist()
+        current_attack_mode = get_attack_mode() # 현재 시스템에 설정된 공격 모드 읽기
+        print(f"[test4.py] System Attack Mode (from {ATTACK_FILE}): {current_attack_mode}")
 
-        # GMSK 복조
-        tb = GMSKDemodulator(complex_list)
-        tb.run()
-        bit_stream = list(tb.sink.data())
-        print(f"[test4.py] Demodulated {len(bit_stream)} bits")
 
-        # 프리앰블 찾기 (shift 0~8)
-        MAX_SHIFT  = 8
-        best_shift = 0
-        best_idx   = -1
-        for shift in range(0, MAX_SHIFT + 1):
-            shifted_bits = bit_stream[shift:] if shift > 0 else bit_stream
-            idx = find_preamble(shifted_bits)
-            if idx >= 0:
-                best_shift = shift
-                best_idx   = idx
-                break
+        try:
+            complex_samples = np.frombuffer(gmsk_modulated_data_from_test3, dtype=np.complex64)
+            if complex_samples.size == 0: continue
+        except Exception as e:
+            print(f"[ERROR] Convert to complex samples failed: {e}"); continue
 
-        if best_idx < 0:
-            print("[test4.py] Preamble not found. Skipping.")
-            continue
+        try:
+            demodulated_stream = demodulate_gmsk_signal(complex_samples)
+            if not demodulated_stream: continue
+        except Exception as e:
+            print(f"[ERROR] GMSK Demodulation failed: {e}"); import traceback; traceback.print_exc(); continue
+        
+        preamble_idx = demodulated_stream.find(GMSK_RX_PREAMBLE)
+        if preamble_idx == -1:
+            print(f"[WARN] GMSK RX Preamble ({GMSK_RX_PREAMBLE.hex()}) not found."); continue
+        
+        start_of_cfs_packet = preamble_idx + len(GMSK_RX_PREAMBLE)
+        cfs_original_packet_data = demodulated_stream[start_of_cfs_packet:]
 
-        print(f"[test4.py] Found preamble at shift={best_shift}, idx={best_idx}")
+        if not cfs_original_packet_data:
+            print("[WARN] No data after GMSK preamble."); continue
+        
+        core_message_bytes_for_log = b""
+        parsed_numeric_id_from_payload = None
+        text_repr_for_csv = "[CoreMsgParseError]"
+        log_id_from_cfs_header = f"T4_ProcSeq_{t4_processing_seq_count}"
 
-        # 복원된 바이트 생성
-        final_start = best_idx + best_shift + 16
-        restored    = bits_to_bytes(bit_stream, final_start)
-        print(f"[test4.py] Restored {len(restored)} bytes")
-        print("[test4.py] Restored Hex (first 32):",
-              ' '.join(f"0x{b:02X}" for b in restored[:32]))
+        try:
+            if len(cfs_original_packet_data) >= CFS_CCSDS_PRIMARY_HEADER_LENGTH:
+                cfs_pkt_apid_field = ((cfs_original_packet_data[0] & 0x07) << 8) | cfs_original_packet_data[1]
+                cfs_pkt_seq_count_field = ((cfs_original_packet_data[2] & 0x3F) << 8) | cfs_original_packet_data[3]
+                log_id_from_cfs_header = f"cFS_APID{cfs_pkt_apid_field:03X}_SEQ{cfs_pkt_seq_count_field}"
 
-        # “ID:메시지” 파싱
-        parsed_id, parsed_body = parse_id_and_body(restored)
-        print(f"[test4.py] Parsed ID: {parsed_id}, Text: {parsed_body!r}")
+                cfs_pkt_data_len_field = (cfs_original_packet_data[4] << 8) | cfs_original_packet_data[5]
+                expected_cfs_user_data_len = 0 if cfs_pkt_data_len_field == 0xFFFF else cfs_pkt_data_len_field + 1
+                actual_available_user_data_len = len(cfs_original_packet_data) - CFS_CCSDS_PRIMARY_HEADER_LENGTH
+                
+                user_data_to_parse_len = 0
+                if actual_available_user_data_len < 0:
+                    text_repr_for_csv = "[InsufficientDataForPayload]"
+                else: 
+                    if actual_available_user_data_len < expected_cfs_user_data_len:
+                        user_data_to_parse_len = actual_available_user_data_len
+                    elif actual_available_user_data_len > expected_cfs_user_data_len:
+                        user_data_to_parse_len = expected_cfs_user_data_len
+                    else: user_data_to_parse_len = expected_cfs_user_data_len
+                    
+                    if user_data_to_parse_len > 0:
+                        user_data_start_idx = CFS_CCSDS_PRIMARY_HEADER_LENGTH
+                        user_data_end_idx = user_data_start_idx + user_data_to_parse_len
+                        if user_data_end_idx > len(cfs_original_packet_data):
+                            user_data_end_idx = len(cfs_original_packet_data)
+                        
+                        user_data_bytes = cfs_original_packet_data[user_data_start_idx : user_data_end_idx]
 
-        # 널바이트(\x00) 제거: trailing nulls가 있으면 모두 strip
-        if parsed_body:
-            parsed_body = parsed_body.rstrip('\x00')
+                        if cfs_pkt_apid_field == CFS_SAMPLE_APP_APID and len(user_data_bytes) > CFS_SAMPLE_APP_INTERNAL_PAYLOAD_PREFIX_LEN:
+                            actual_string_data_start_idx = CFS_SAMPLE_APP_INTERNAL_PAYLOAD_PREFIX_LEN
+                            actual_string_data_bytes = user_data_bytes[actual_string_data_start_idx:]
+                            decoded_app_payload_str = actual_string_data_bytes.decode('utf-8', errors='replace').rstrip('\x00')
+                            
+                            if decoded_app_payload_str.startswith(CFS_SAMPLE_APP_TEXT_PREFIX):
+                                content_after_text_prefix = decoded_app_payload_str[len(CFS_SAMPLE_APP_TEXT_PREFIX):]
+                                core_message_bytes_for_log = content_after_text_prefix.encode('utf-8')
+                                parts = content_after_text_prefix.split(":", 1)
+                                if len(parts) == 2:
+                                    id_str_from_payload = parts[0].strip()
+                                    text_repr_for_csv = parts[1].strip()
+                                    try: parsed_numeric_id_from_payload = int(id_str_from_payload)
+                                    except ValueError: text_repr_for_csv = content_after_text_prefix 
+                                else: text_repr_for_csv = content_after_text_prefix
+                            else: 
+                                text_repr_for_csv = decoded_app_payload_str
+                                core_message_bytes_for_log = decoded_app_payload_str.encode('utf-8')
+                        else: 
+                            decoded_user_data = user_data_bytes.decode('utf-8', errors='replace').rstrip('\x00')
+                            if decoded_user_data:
+                                text_repr_for_csv = decoded_user_data
+                                core_message_bytes_for_log = user_data_bytes 
+                            else:
+                                text_repr_for_csv = "[EmptyDecodedUserData]" if user_data_bytes else "[NoUserDataBytes]"
+                                core_message_bytes_for_log = b""
+                    elif user_data_to_parse_len == 0:
+                        text_repr_for_csv = "[NoUserDataInCFSPacket]"; core_message_bytes_for_log = b""
+            else: 
+                text_repr_for_csv = cfs_original_packet_data.hex() if cfs_original_packet_data else "[EmptyCFSPacket]"
+                core_message_bytes_for_log = cfs_original_packet_data
+        except Exception as e:
+            print(f"[WARN] Error parsing cFS packet content for logging: {e}")
+            text_repr_for_csv = cfs_original_packet_data.hex() if cfs_original_packet_data else "[CFSPacketParseError]"
+            core_message_bytes_for_log = cfs_original_packet_data
 
-        # CSV에 [id, timestamp, text, recv_bits] 기록
-        if parsed_id is not None:
-            timestamp_str = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
-            recv_bits = text_to_bitstring(parsed_body)
-            with open(RECV_CSV, "a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow([parsed_id, timestamp_str, parsed_body, recv_bits])
-            print(f"[test4.py] Logged to {RECV_CSV.name}: "
-                  f"ID={parsed_id}, Time={timestamp_str}, Text={parsed_body!r}, recv_bits_len={len(recv_bits)}")
-        else:
-            print("[test4.py] ID parsing failed; not logged to CSV.")
+        core_message_bits_for_log = bytes_to_bitstring(core_message_bytes_for_log)
+        final_log_id_for_csv = parsed_numeric_id_from_payload if parsed_numeric_id_from_payload is not None else log_id_from_cfs_header
+        
+        timestamp_str = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+        
+        # CSV 로깅 시 현재 시스템의 공격 모드를 함께 기록
+        log_to_recv_csv(final_log_id_for_csv, timestamp_str, text_repr_for_csv, core_message_bits_for_log, current_attack_mode)
+        
+        if parsed_numeric_id_from_payload is None:
+            t4_processing_seq_count += 1
 
-        # GS GUI로 메시지 본문만 전송
-        to_send = parsed_body.encode('utf-8', errors='ignore')
-        sock_out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock_out.sendto(to_send, (GS_SEND_IP, GS_SEND_PORT))
-        sock_out.close()
-        print(f"[test4.py] Forwarded {len(to_send)} text bytes to GS at {GS_SEND_IP}:{GS_SEND_PORT}")
-
-        time.sleep(0.05)
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
-
