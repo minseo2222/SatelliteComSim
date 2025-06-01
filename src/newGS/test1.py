@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 test1.py: GS(cmdUtil)로부터 수신한 패킷에서 순수 "ID:메시지" 문자열을 추출하여 로깅.
+          GroundSystem.py에서 설정한 attack_mode.txt를 읽어 공격 적용.
+          "변조", "노이즈", "재밍" 공격은 "ID:메시지"의 메시지 텍스트 부분에만 적용 (ID 보호).
           수신한 전체 패킷(gs_packet_data)에 GMSK 전송 프리앰블만 추가하여
           GMSK 변조 후 test2.py로 전송.
 """
@@ -11,49 +13,40 @@ import time
 import csv
 import os
 from pathlib import Path
-from datetime import datetime, timezone # timezone 추가
+from datetime import datetime, timezone
 import numpy as np
 from gnuradio import gr, blocks, digital
+import random # 비트 오류 주입용
 
-# GS -> test1 (cmdUtil 통해 패킷 입력)
 LISTEN_IP = "0.0.0.0"
 LISTEN_PORT = 50000
-
-# test1 -> test2 (GMSK 변조 데이터 전송)
 UDP_IP_SEND_TO_TEST2 = "127.0.0.1"
 UDP_PORT_SEND_TO_TEST2 = 8888
 
 ROOTDIR = Path(__file__).resolve().parent
 SENT_CSV_PATH = ROOTDIR / "Subsystems" / "cmdGui" / "sample_app_sent.csv"
-ATTACK_FILE = ROOTDIR / "attack_mode.txt" # GroundSystem.py가 이 파일을 제어
-
+ATTACK_FILE = ROOTDIR / "attack_mode.txt"
 GMSK_TX_PREAMBLE = b'\xAA\xAA'
 
+# --- GMSKModulator, get_attack_mode, bytes_to_bitstring, CSV 함수들은 이전과 동일 ---
 class GMSKModulator(gr.top_block):
     def __init__(self, data_bytes_to_modulate):
         super().__init__(name="GMSKModulator_Test1")
-        self.sps = 2
-        self.bt = 0.3 # test2.py의 demodulator 기본 bt값과 일치
+        self.sps = 2; self.bt = 0.3
         self.src = blocks.vector_source_b(list(data_bytes_to_modulate), False)
         self.mod = digital.gmsk_mod(samples_per_symbol=self.sps, bt=self.bt)
         self.sink = blocks.vector_sink_c()
-        self.connect(self.src, self.mod)
-        self.connect(self.mod, self.sink)
-
-    def get_modulated_data(self):
-        return self.sink.data()
+        self.connect(self.src, self.mod); self.connect(self.mod, self.sink)
+    def get_modulated_data(self): return self.sink.data()
 
 def get_attack_mode():
     try:
-        # GroundSystem.py가 이 파일을 생성/수정하므로, 여기서 읽기만 함
         if ATTACK_FILE.exists():
             with open(ATTACK_FILE, "r", encoding="utf-8") as f:
-                return f.read().strip()
-        else: # 파일이 없으면 "none"으로 간주 (GroundSystem.py 초기화 시 생성됨)
-            return "none"
+                return f.read().strip().lower()
+        else: return "none"
     except Exception as e:
-        print(f"[WARN] Could not read attack_mode.txt: {e}")
-        return "none"
+        print(f"[WARN] Could not read attack_mode.txt: {e}"); return "none"
 
 def bytes_to_bitstring(b: bytes) -> str:
     return ''.join(f"{byte:08b}" for byte in b)
@@ -63,7 +56,6 @@ def ensure_sent_csv_header():
         SENT_CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(SENT_CSV_PATH, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            # CSV 헤더: BER 비교 대상인 핵심 메시지 비트열을 명시
             writer.writerow(["id", "timestamp", "text_representation", "core_message_bits", "attack_type"])
         print(f"[DEBUG] Created CSV header for sent data at {SENT_CSV_PATH}")
 
@@ -72,112 +64,190 @@ def log_to_sent_csv(log_id, timestamp_str, text_representation, core_message_bit
     with open(SENT_CSV_PATH, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([str(log_id), timestamp_str, text_representation, core_message_bits, attack_mode])
-    print(f"[DEBUG] Logged to SENT CSV: ID='{str(log_id)}', Text='{text_representation}', Core Message Bits={len(core_message_bits)}")
+    print(f"[DEBUG] Logged to SENT CSV: ID='{str(log_id)}', Text='{text_representation}', Core Message Bits={len(core_message_bits)}, Attack='{attack_mode}'")
+# --- Helper functions end ---
+
+def apply_payload_bit_errors(payload_bytes: bytes, error_rate: float) -> bytes:
+    """ 주어진 페이로드 바이트에 지정된 비율만큼 비트 오류를 주입 (ID 보호 없음, 전체 페이로드 대상) """
+    if not payload_bytes or error_rate == 0:
+        return payload_bytes
+    
+    bits = []
+    for byte in payload_bytes:
+        for i in range(8):
+            bits.append((byte >> (7 - i)) & 1)
+            
+    num_bits_to_flip = int(len(bits) * error_rate)
+    if num_bits_to_flip == 0 and error_rate > 0: # 최소 1비트는 변경 (error_rate가 매우 작을 때)
+        num_bits_to_flip = 1 
+        
+    indices_to_flip = random.sample(range(len(bits)), min(num_bits_to_flip, len(bits)))
+    
+    for idx in indices_to_flip:
+        bits[idx] = 1 - bits[idx] # 비트 반전
+        
+    new_bytes = bytearray()
+    for i in range(0, len(bits), 8):
+        byte_val = 0
+        for j in range(8):
+            if (i + j) < len(bits):
+                byte_val = (byte_val << 1) | bits[i+j]
+        new_bytes.append(byte_val)
+    return bytes(new_bytes)
+
 
 def main():
     sock_recv_from_gs = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock_recv_from_gs.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock_recv_from_gs.bind((LISTEN_IP, LISTEN_PORT))
     print(f"[test1.py] Listening for packets from GS (via cmdUtil) on UDP {LISTEN_IP}:{LISTEN_PORT} ...")
+    print(f"[test1.py] Attack mode file: {ATTACK_FILE.resolve()}")
 
     sock_send_to_test2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    
-    # test1.py의 자체 처리 시퀀스 카운터 (로그 대체 ID용)
     t1_processing_seq_count = 0
 
     while True:
-        gs_packet_data, gs_addr = sock_recv_from_gs.recvfrom(4096)
-        print(f"\n[test1.py] Received {len(gs_packet_data)} bytes of packet data from GS ({gs_addr})")
+        gs_packet_data_original, gs_addr = sock_recv_from_gs.recvfrom(4096)
+        print(f"\n[test1.py] Received {len(gs_packet_data_original)} bytes of packet data from GS ({gs_addr})")
         
-        # --- 핵심 "ID:메시지" 문자열 추출 및 로깅 준비 ---
+        current_attack_mode = get_attack_mode()
+        print(f"[test1.py] Current Attack Mode: {current_attack_mode}")
+
+        # --- "ID:메시지" 핵심 평문 추출 (로깅용, 공격 전 원본 기준) ---
         core_message_bytes_for_log = b""
         parsed_numeric_id_from_gui = None
         text_repr_for_csv = "[CoreMsgParseError]"
-        # 대체 ID 초기화: test1.py 자체 처리 시퀀스 사용
+        id_part_str_for_attack_handling = "" # 공격 시 ID 부분 식별 및 보호용
         fallback_log_id_str = f"T1_ProcSeq_{t1_processing_seq_count}" 
 
         CMDUTIL_CCSDS_PRI_HDR_LEN = 6
-        CMDUTIL_INTERNAL_HDR_LEN = 2 # cmdUtil이 추가하는 내부 헤더 (예: cmdcode 0x0A + unknown 0x18)
-        CMDUTIL_STRING_FIELD_LEN = 128 # cmdUtil이 "ID:메시지" 문자열을 위해 할당한 필드 길이
+        CMDUTIL_INTERNAL_HDR_LEN = 2
+        CMDUTIL_STRING_FIELD_LEN = 128 
 
-        try: # 대체 ID를 cmdUtil 패킷 헤더 정보로 업데이트 시도
-            if len(gs_packet_data) >= CMDUTIL_CCSDS_PRI_HDR_LEN:
-                cmdutil_apid_field = ((gs_packet_data[0] & 0x07) << 8) | gs_packet_data[1]
-                cmdutil_seq_count_field = ((gs_packet_data[2] & 0x3F) << 8) | gs_packet_data[3]
+        try: 
+            if len(gs_packet_data_original) >= CMDUTIL_CCSDS_PRI_HDR_LEN:
+                cmdutil_apid_field = ((gs_packet_data_original[0] & 0x07) << 8) | gs_packet_data_original[1]
+                cmdutil_seq_count_field = ((gs_packet_data_original[2] & 0x3F) << 8) | gs_packet_data_original[3]
                 fallback_log_id_str = f"CmdPkt_APID{cmdutil_apid_field:03X}_SEQ{cmdutil_seq_count_field}"
-        except IndexError:
-            print(f"[WARN] Could not parse cmdUtil CCSDS header from gs_packet_data for fallback ID. Length: {len(gs_packet_data)}")
-            # fallback_log_id_str는 초기값(T1_ProcSeq_...) 유지
+        except IndexError: pass
 
-        # cmdUtil 패킷에서 실제 "ID:메시지" 문자열 부분 추출
-        expected_min_len_for_string = CMDUTIL_CCSDS_PRI_HDR_LEN + CMDUTIL_INTERNAL_HDR_LEN
-        if len(gs_packet_data) > expected_min_len_for_string: # 최소한 문자열 시작부분까지 데이터가 있어야 함
-            string_payload_field_start = expected_min_len_for_string
-            # cmdUtil이 할당한 128바이트 문자열 필드를 추출하되, 실제 패킷 길이를 넘지 않도록 함
-            actual_string_field_len = min(CMDUTIL_STRING_FIELD_LEN, len(gs_packet_data) - string_payload_field_start)
-            string_payload_field_bytes = gs_packet_data[string_payload_field_start : string_payload_field_start + actual_string_field_len]
+        expected_min_len_for_string_field = CMDUTIL_CCSDS_PRI_HDR_LEN + CMDUTIL_INTERNAL_HDR_LEN
+        if len(gs_packet_data_original) > expected_min_len_for_string_field:
+            string_payload_field_start = expected_min_len_for_string_field
+            actual_string_field_len = min(CMDUTIL_STRING_FIELD_LEN, len(gs_packet_data_original) - string_payload_field_start)
+            string_payload_field_bytes = gs_packet_data_original[string_payload_field_start : string_payload_field_start + actual_string_field_len]
             
             try:
-                # UTF-8 디코딩 후, 후미의 널 패딩 제거하여 원본 "ID:메시지" 문자열 복원
-                # sample_app_send_text_gui.py에서 이미 [:128]로 잘랐으므로, 
-                # 여기서 추출한 string_payload_field_bytes는 이미 원본이거나, 원본 + 널패딩임.
                 decoded_core_message_str = string_payload_field_bytes.decode('utf-8', errors='replace').rstrip('\x00')
-                
-                # 로깅 대상: 복원된 (널패딩 제거된) 문자열의 UTF-8 바이트
                 core_message_bytes_for_log = decoded_core_message_str.encode('utf-8')
-                print(f"[DEBUG] Extracted core message for logging: '{decoded_core_message_str}' ({len(core_message_bytes_for_log)} bytes)")
-
+                
                 parts = decoded_core_message_str.split(":", 1)
-                if len(parts) == 2: # "ID:TEXT" 형식인지 확인
+                if len(parts) == 2:
                     id_str_from_gui = parts[0].strip()
-                    text_repr_for_csv = parts[1].strip() # 메시지 부분
-                    try:
-                        parsed_numeric_id_from_gui = int(id_str_from_gui) # 정수 ID 변환
-                    except ValueError:
-                        print(f"[WARN] Parsed ID '{id_str_from_gui}' from GS packet is not an integer. Using fallback ID logic.")
-                        # ID가 정수가 아니면, 파싱된 ID 문자열과 TEXT를 합쳐서 text_repr_for_csv로 사용
-                        text_repr_for_csv = decoded_core_message_str 
-                elif decoded_core_message_str: # 콜론이 없지만 내용이 있는 경우
-                    text_repr_for_csv = decoded_core_message_str.strip()
-                else: # 디코딩 후 빈 문자열 (모두 널패딩이었던 경우 등)
-                    text_repr_for_csv = "[EmptyCoreMessage]"
-                    core_message_bytes_for_log = b"" 
+                    id_part_str_for_attack_handling = id_str_from_gui # 공격 시 ID 부분 식별용
+                    text_repr_for_csv = parts[1].strip()
+                    try: parsed_numeric_id_from_gui = int(id_str_from_gui)
+                    except ValueError: text_repr_for_csv = decoded_core_message_str 
+                elif decoded_core_message_str: text_repr_for_csv = decoded_core_message_str.strip()
+                else: text_repr_for_csv = "[EmptyCoreMessage]"; core_message_bytes_for_log = b""
             except Exception as e:
-                print(f"[WARN] Could not parse core message string from gs_packet_data: {e}")
-                text_repr_for_csv = "[CoreMsgParseFail]"
-                core_message_bytes_for_log = b"" # 파싱 실패 시 비트열도 비움
+                text_repr_for_csv = "[CoreMsgParseFail]"; core_message_bytes_for_log = b"" 
         else: 
-            print(f"[WARN] gs_packet_data (len: {len(gs_packet_data)}) too short to extract core message string.")
-            text_repr_for_csv = gs_packet_data.hex() if gs_packet_data else "[EmptyGSPacket]"
+            text_repr_for_csv = gs_packet_data_original.hex() if gs_packet_data_original else "[EmptyGSPacket]"
             core_message_bytes_for_log = b""
 
-
         core_message_bits_for_log = bytes_to_bitstring(core_message_bytes_for_log)
-        # 최종 로그 ID 결정: GUI에서 온 정수 ID를 최우선 사용
         final_log_id_for_csv = parsed_numeric_id_from_gui if parsed_numeric_id_from_gui is not None else fallback_log_id_str
+        timestamp_str = datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
         
-        # 타임스탬프: UTC 기준 ISO 8601 형식
-        timestamp_str = datetime.now(timezone.utc).isoformat(timespec='milliseconds')
-        if not timestamp_str.endswith('Z'): # isoformat이 +00:00을 생성할 수 있으므로 Z로 통일
-            timestamp_str = timestamp_str.replace('+00:00', 'Z')
+        log_to_sent_csv(final_log_id_for_csv, timestamp_str, text_repr_for_csv, core_message_bits_for_log, current_attack_mode)
 
-        attack_mode = get_attack_mode()
+        # --- 공격 적용 ---
+        data_to_transmit_attacked = bytearray(gs_packet_data_original) 
 
-        log_to_sent_csv(final_log_id_for_csv, timestamp_str, text_repr_for_csv, core_message_bits_for_log, attack_mode)
-
-        # test2.py로 전송할 패킷: gs_packet_data 전체에 GMSK 프리앰블만 추가
-        packet_to_modulate = GMSK_TX_PREAMBLE + gs_packet_data
+        if current_attack_mode == "drop":
+            print(f"[ATTACK][test1.py] Dropping packet for ID '{final_log_id_for_csv}'.")
+            t1_processing_seq_count += 1
+            continue 
         
-        print(f"[DEBUG] Packet to modulate for test2: {len(GMSK_TX_PREAMBLE)}B GMSK_preamble + {len(gs_packet_data)}B (gs_packet_data) = {len(packet_to_modulate)}B total")
+        # "modify", "noise", "jamming"은 "ID:메시지"의 메시지 텍스트 부분에만 적용
+        if current_attack_mode in ["modify", "noise", "jamming"]:
+            print(f"[ATTACK][test1.py] Applying '{current_attack_mode}' attack for ID '{final_log_id_for_csv}'.")
+            
+            if id_part_str_for_attack_handling and text_repr_for_csv not in ["[CoreMsgParseError]", "[CoreMsgParseFail]", "[EmptyCoreMessage]", "[PktParseError]", gs_packet_data_original.hex()]:
+                
+                id_prefix_str = f"{id_part_str_for_attack_handling}:"
+                id_prefix_bytes = id_prefix_str.encode('utf-8')
+                id_prefix_len_in_bytes = len(id_prefix_bytes)
 
-        tb_mod = GMSKModulator(packet_to_modulate)
-        tb_mod.run() # VectorSource가 repeat=False이므로, 데이터 소진 시 자동 완료
+                # "ID:메시지" 문자열 필드가 시작되는 위치 (gs_packet_data_original 기준)
+                string_field_absolute_start = CMDUTIL_CCSDS_PRI_HDR_LEN + CMDUTIL_INTERNAL_HDR_LEN
+                
+                # 실제 "메시지" 텍스트가 시작되는 절대 오프셋
+                message_text_absolute_start_offset = string_field_absolute_start + id_prefix_len_in_bytes
+                
+                # 원본 "메시지" 텍스트 부분의 바이트 (패딩 제거된 핵심 메시지에서 ID 부분 제외)
+                # core_message_bytes_for_log가 "ID:메시지" 전체이므로, 여기서 ID: 부분을 잘라내면 메시지 텍스트 바이트.
+                original_message_text_bytes = core_message_bytes_for_log[id_prefix_len_in_bytes:]
+
+                if original_message_text_bytes: # 실제 메시지 내용이 있는 경우
+                    attacked_message_text_bytes = original_message_text_bytes # 복사본으로 작업
+
+                    if current_attack_mode == "modify":
+                        temp_message_text_list = bytearray(attacked_message_text_bytes)
+                        if temp_message_text_list: # 비어있지 않으면
+                            temp_message_text_list[0] = temp_message_text_list[0] ^ 0x01 # 첫 바이트 LSB 반전
+                            attacked_message_text_bytes = bytes(temp_message_text_list)
+                            print(f"[ATTACK][test1.py] 'modify': Flipped LSB of the first byte of MessageText.")
+                        else:
+                            print(f"[ATTACK][test1.py] 'modify': MessageText part is empty, no modification.")
+                    
+                    elif current_attack_mode == "noise":
+                        # 메시지 텍스트 부분에만 비트 오류 주입 (예: 5% 오류율)
+                        attacked_message_text_bytes = apply_payload_bit_errors(attacked_message_text_bytes, 0.05)
+                        print(f"[ATTACK][test1.py] 'noise': Applied ~5% bit errors to MessageText part.")
+
+                    elif current_attack_mode == "jamming":
+                        # 메시지 텍스트 부분에만 비트 오류 주입 (예: 30% 오류율)
+                        attacked_message_text_bytes = apply_payload_bit_errors(attacked_message_text_bytes, 0.30)
+                        print(f"[ATTACK][test1.py] 'jamming': Applied ~30% bit errors to MessageText part.")
+
+                    # 공격 적용된 메시지 텍스트를 원래 패킷 위치에 다시 삽입
+                    # data_to_transmit_attacked의 해당 부분을 교체
+                    # 주의: attacked_message_text_bytes의 길이가 original_message_text_bytes와 같아야 함 (apply_payload_bit_errors는 길이 유지)
+                    if len(attacked_message_text_bytes) == len(original_message_text_bytes):
+                        for i in range(len(attacked_message_text_bytes)):
+                            if message_text_absolute_start_offset + i < len(data_to_transmit_attacked):
+                                data_to_transmit_attacked[message_text_absolute_start_offset + i] = attacked_message_text_bytes[i]
+                    else: # 비트오류 주입 함수가 길이를 변경한 경우 (현재는 아님)
+                         print(f"[ERROR] Length mismatch after applying bit errors to MessageText. Attack not fully applied to packet.")
+                else:
+                    print(f"[ATTACK][test1.py] MessageText part is empty. No data-content attack applied.")
+            else:
+                print(f"[ATTACK][test1.py] Cannot apply payload-specific attack for ID '{final_log_id_for_csv}' due to parsing issues or empty text. Skipping data-content attack.")
         
-        modulated_complex_data = tb_mod.get_modulated_data()
-        mod_bytes_to_test2 = np.array(modulated_complex_data, dtype=np.complex64).tobytes()
+        # RF 레벨의 노이즈/재밍은 여기서 GMSK 변조 후 샘플에 추가하는 것이 더 현실적이나,
+        # 사용자 요청은 "페이로드 부분만 영향"이므로 위에서 비트오류로 처리함.
+        # 만약 RF 레벨 공격도 원한다면 아래 로직 활성화. 현재는 비활성화.
+        """
+        if current_attack_mode == "noise_rf" or current_attack_mode == "jamming_rf":
+            # ... GMSK 변조 후 modulated_complex_data_np에 노이즈 추가하는 로직 ...
+            pass 
+        """
+
+        packet_for_gmsk_payload = bytes(data_to_transmit_attacked)
+        packet_to_modulate = GMSK_TX_PREAMBLE + packet_for_gmsk_payload
+        
+        print(f"[DEBUG] Packet to modulate for test2: {len(GMSK_TX_PREAMBLE)}B GMSK_preamble + {len(packet_for_gmsk_payload)}B (gs_packet_data, possibly attacked) = {len(packet_to_modulate)}B total")
+
+        tb_mod = GMSKModulator(list(packet_to_modulate))
+        tb_mod.run()
+        
+        modulated_complex_data_np = np.array(tb_mod.get_modulated_data(), dtype=np.complex64)
+        mod_bytes_to_test2 = modulated_complex_data_np.tobytes()
         
         sock_send_to_test2.sendto(mod_bytes_to_test2, (UDP_IP_SEND_TO_TEST2, UDP_PORT_SEND_TO_TEST2))
-        print(f"[test1.py] Sent {len(mod_bytes_to_test2)} GMSK-modulated bytes to test2 ({UDP_IP_SEND_TO_TEST2}:{UDP_PORT_SEND_TO_TEST2})")
+        print(f"[test1.py] Sent {len(mod_bytes_to_test2)} GMSK-modulated bytes to test2 ({UDP_IP_SEND_TO_TEST2}:{UDP_PORT_SEND_TO_TEST2}) for ID '{final_log_id_for_csv}'")
         
         t1_processing_seq_count += 1
 
