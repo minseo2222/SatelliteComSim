@@ -179,7 +179,18 @@ class GroundSystemLogic:
             self.test4_reader.stop()
             self.test4_reader.quit()
             self.test4_reader.wait()
+            
+    def init_attack_ui_state(self, combo_widget, button_widget):
+        current = combo_widget.currentText()
+        button_widget.setEnabled(current != "없음")
+        button_widget.setText("공격 시작")
+        button_widget.setChecked(False)
+        combo_widget.setEnabled(True)
 
+    def set_attack_ui_state(self, combo_widget, button_widget):
+        current = combo_widget.currentText()
+        button_widget.setEnabled(current != "없음")
+        combo_widget.setEnabled(not button_widget.isChecked())
 
 # ──────────────────────────────────────────────────────────────────────────────
 # NextGenGroundSystem: 메인 윈도우. test4 출력도 이곳에 표시
@@ -190,23 +201,16 @@ class NextGenGroundSystem(QMainWindow):
         self.setWindowTitle("차세대 위성통신 보안 시뮬레이터 (New GUI)")
         self.resize(1200, 800)
 
-        # persistent settings
         self.settings = QSettings("MyCompany", "SatelliteComSim")
-
         self.ROOTDIR  = pathlib.Path(__file__).parent.absolute()
-        self.gs_logic = GroundSystemLogic(self.ROOTDIR,
-                            display_error_callback=self.show_error_message)
+        self.gs_logic = GroundSystemLogic(self.ROOTDIR, self.show_error_message)
 
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         h_layout = QHBoxLayout(main_widget)
-        h_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Left: 3D view & control buttons
         left_panel  = QWidget()
         left_layout = QVBoxLayout(left_panel)
-
-        # 3D view
         self.earth_view = EarthSatelliteView(
             model_path     = str(self.ROOTDIR / "earth.glb"),
             texture_path   = str(self.ROOTDIR / "textures" / "image_0.png"),
@@ -216,24 +220,18 @@ class NextGenGroundSystem(QMainWindow):
         )
         left_layout.addWidget(self.earth_view, stretch=4)
 
-        # Control buttons: Base, Satellite, Comm
         button_layout = QHBoxLayout()
-        btn_base    = QPushButton("기지국 설정")
-        btn_base.clicked.connect(self.openBaseStationSettings)
-        button_layout.addWidget(btn_base)
-
-        btn_sat     = QPushButton("위성 설정")
-        btn_sat.clicked.connect(self.openSatelliteSettings)
-        button_layout.addWidget(btn_sat)
-
-        btn_comm    = QPushButton("통신 설정")
-        btn_comm.clicked.connect(self.openCommSettings)
-        button_layout.addWidget(btn_comm)
-
+        for name, callback in [
+            ("기지국 설정", self.openBaseStationSettings),
+            ("위성 설정", self.openSatelliteSettings),
+            ("통신 설정", self.openCommSettings)
+        ]:
+            b = QPushButton(name)
+            b.clicked.connect(callback)
+            button_layout.addWidget(b)
         left_layout.addLayout(button_layout, stretch=1)
         h_layout.addWidget(left_panel, stretch=5)
 
-        # Right: log and controls
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         self.log_output = QTextEdit()
@@ -244,7 +242,6 @@ class NextGenGroundSystem(QMainWindow):
         control_layout = QVBoxLayout(control_box)
         form_layout   = QFormLayout()
 
-        # TLM header 설정
         self.cb_tlm_header = QComboBox()
         self.cb_tlm_header.addItems(["1", "2", "Custom"])
         self.cb_tlm_header.currentTextChanged.connect(self.on_tlm_header_changed)
@@ -256,7 +253,6 @@ class NextGenGroundSystem(QMainWindow):
         self.sb_tlm_offset.valueChanged.connect(self.on_tlm_offset_changed)
         form_layout.addRow("TLM Offset", self.sb_tlm_offset)
 
-        # CMD header 설정
         self.cb_cmd_header = QComboBox()
         self.cb_cmd_header.addItems(["1", "2", "Custom"])
         self.cb_cmd_header.currentTextChanged.connect(self.on_cmd_header_changed)
@@ -280,43 +276,61 @@ class NextGenGroundSystem(QMainWindow):
         self.cb_ips.addItem("All")
         control_layout.addWidget(self.cb_ips)
 
-        btn_tlm = QPushButton("Start Telemetry")
-        btn_tlm.clicked.connect(self.on_start_tlm)
-        control_layout.addWidget(btn_tlm)
+        for label, handler in [
+            ("Start Telemetry", self.on_start_tlm),
+            ("Start Command", self.on_start_cmd),
+            ("커맨드 로그 초기화", self.clear_cmd_log)
+        ]:
+            b = QPushButton(label)
+            b.clicked.connect(handler)
+            control_layout.addWidget(b)
 
-        btn_cmd = QPushButton("Start Command")
-        btn_cmd.clicked.connect(self.on_start_cmd)
-        control_layout.addWidget(btn_cmd)
+        control_layout.addWidget(QLabel("공격 유형 선택"))
+        self.attack_combo = QComboBox()
+        self.attack_combo.addItems(["없음", "재밍", "변조", "드랍", "노이즈"])
+        self.attack_combo.currentTextChanged.connect(self.on_attack_combo_changed)
+        control_layout.addWidget(self.attack_combo)
 
-        btn_clear = QPushButton("커맨드 로그 초기화")
-        btn_clear.clicked.connect(self.clear_cmd_log)
-        control_layout.addWidget(btn_clear)
+        self.attack_button = QPushButton("공격 시작")
+        self.attack_button.setCheckable(True)
+        self.attack_button.clicked.connect(self.toggle_attack_mode)
+        control_layout.addWidget(self.attack_button)
+        self.gs_logic.init_attack_ui_state(self.attack_combo, self.attack_button)
 
-        control_layout.addWidget(QLabel("사이버 공격"))
-        atk_layout = QHBoxLayout()
-        for lbl in ["재밍", "스푸핑", "재전송"]:
-            b = QPushButton(lbl)
-            b.clicked.connect(lambda _, m=lbl: self.append_terminal_output(f"[공격] {m} 실행"))
-            atk_layout.addWidget(b)
-        control_layout.addLayout(atk_layout)
 
         right_layout.addWidget(control_box, stretch=2)
         h_layout.addWidget(right_panel, stretch=3)
 
-        # 저장된 위성 파라미터 있으면 로드
-        saved = self.settings.value("satellite/params", type=dict) or {}
-        if saved:
-            self.earth_view.updateSatelliteParameters(**saved)
-
-        # ──────────────────────────────────────────────────────────────────────
-        # 기존 코드에 있던 init_routing_service 호출 (반드시 유지)
-        # ──────────────────────────────────────────────────────────────────────
         self.init_routing_service()
-
-        # ──────────────────────────────────────────────────────────────────────
-        # 수정된 부분: GS 실행 직후 test4.py 자동 실행 (복원된 메시지 로그 표시)
-        # ──────────────────────────────────────────────────────────────────────
         self.gs_logic.start_test4(on_stdout_callback=self.append_terminal_output)
+        
+        with open("attack_mode.txt", "w") as f:
+            f.write("none")
+        
+    def toggle_attack_mode(self):
+        is_checked = self.attack_button.isChecked()
+    
+        # 한글 → 내부 코드용 영문 맵핑
+        mode_kor_to_eng = {
+            "없음": "none",
+            "재밍": "jamming",
+            "변조": "modify",
+            "드랍": "drop",
+            "노이즈": "noise"
+        }
+        selected_kor = self.attack_combo.currentText()
+        selected_mode = mode_kor_to_eng.get(selected_kor, "none") if is_checked else "none"
+
+        try:
+            with open("attack_mode.txt", "w") as f:
+                f.write(selected_mode)
+        except Exception as e:
+            self.append_terminal_output(f"[공격] 모드 저장 실패: {e}")
+            return
+
+        self.attack_button.setText("공격 중지" if is_checked else "공격 시작")
+        self.attack_combo.setEnabled(not is_checked)
+        self.append_terminal_output(f"[공격] {selected_kor} 모드 실행 중" if selected_mode != "none" else "[공격] 모든 공격 중지됨")
 
     def openBaseStationSettings(self):
         self.append_terminal_output("[시스템] 기지국 설정 기능이 아직 구현되지 않았습니다.")
@@ -396,9 +410,6 @@ class NextGenGroundSystem(QMainWindow):
         self.gs_logic.update_ip_list(ip, name)
         self.cb_ips.addItem(ip)
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # ★ 누락되었던 init_routing_service 메서드를 반드시 포함해야 합니다.
-    # ──────────────────────────────────────────────────────────────────────────
     def init_routing_service(self):
         from RoutingService import RoutingService
         self.routing_service = RoutingService()
@@ -413,6 +424,10 @@ class NextGenGroundSystem(QMainWindow):
             self.gs_logic.routing_service.stop()
         os.kill(0, signal.SIGKILL)
         super().closeEvent(ev)
+        
+    def on_attack_combo_changed(self, text):
+        self.attack_button.setEnabled(text != "없음")
+
 
 
 def main():
@@ -427,5 +442,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from _version import __version__, _version_string
+    print(_version_string)
+    app = QApplication(sys.argv)
+    window = NextGenGroundSystem()
+    window.show()
+    window.raise_()
+    window.gs_logic.save_offsets()
+    sys.exit(app.exec_())
 
