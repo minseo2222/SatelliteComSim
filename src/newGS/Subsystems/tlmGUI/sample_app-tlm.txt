@@ -1,0 +1,2 @@
+0x08A9 SAMPLE_APP_TelemetryPkt_t
+char Message[128]
