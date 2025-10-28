@@ -7,13 +7,24 @@
 - 박민서
 - 조영민
 ---
+### 11주차 활동
+- 테스트케이스 계획서
+- [🎬Youtube](https://youtu.be/hrfIZnaTC4A)
+- 테스트케이스 계획서, 발표 PPT
+- [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/24)
 
-### 참고 논문
+### 7~8주차 활동
+- 시퀀스 다이어그램 명세서
+- [🎬Youtube](https://youtu.be/gjChe285upI)
+- 시퀀스 다이어그램 명세서, 발표 PPT
+- [PR](https://github.com/RAKKUNN/SatelliteComSim/pull/23)
+
+#### 참고 논문
 - 인공위성 시스템 암호 통신 향상을 위한 TEE 적용 방안
 - [우주탐사]오픈소스 비행소프트웨어 플랫폼 CFS
 - NASA CFS에 기반한 초소형 위성용 비행 소프트웨어 개발에 관한 연구
 
-### 6주차 활동
+### 5~6주차 활동
 - 유스케이스 명세서
 - [🎬Youtube](https://youtu.be/bl0Xim8CdOE)
 - 유스케이스 명세서, 발표 PPT

@@ -1,0 +1,263 @@
+# 미위성 통신 산업 개요 (2024기준)
+
+[**Satellite-based communications security: A survey of threats, solutions, and research challenges (2022)**](https://www.notion.so/Satellite-based-communications-security-A-survey-of-threats-solutions-and-research-challenges-20-1e0420461a5280f599a5cfda8966e8d2?pvs=21)
+
+재밍 공격 다룸. 재밍 방어 기술과 암호화 기술 설명
+
+[Looking to the Skies: The Importance of Satellite Cybersecurity(2024)](https://www.notion.so/Looking-to-the-Skies-The-Importance-of-Satellite-Cybersecurity-2024-1e0420461a528043bb4cef8b7b0703e8?pvs=21)
+
+2022년 KA-SAT 사이버 공격 사례를 중심으로 위성 사이버 보안의 중요성을 조명하였다.
+
+호주 및 인도-태평양 지역에서 위성 의존도가 높아지는 현실을 지적하며, 공급망 보안, 정책적 대응, 국제 협력 필요성을 강조한다.
+
+위성을 핵심 인프라로 규정하고, 민간-군사 혼합망 관리 및 정보 공유 체계 구축을 주요 권고사항으로 제시하였다.
+
+위성과 클라우드 결합이 초래할 통신망 집중 리스크도 경고하고 있다.
+
+[SoK: Evaluating the Security of Satellite Systems(2023)](https://www.notion.so/SoK-Evaluating-the-Security-of-Satellite-Systems-2023-1e0420461a5280c98620c2a38b63c0a8?pvs=21)
+
+LEO 위성 중심으로 위성 생태계를 구조화하고, 공격 생애주기 기반(정찰→침입→영향)으로 위성 공격을 체계 분류하였다.
+
+MITRE ATT&CK 프레임워크를 확장해 위성 전용 사이버 공격 매트릭스를 제안하였다.
+
+Viasat 사건과 ICARUS 모델을 분석해 실증적 사례를 연결하며, 세그먼트별(지상, 우주, 통신, 사용자) 취약점을 종합 정리했다.
+
+다층적 보안 설계와 실질적 방어 전략 수립의 필요성을 강조한다.
+
+[Physical Layer Security in Satellite Communication: State-of-the-art and Open Problems(2023)](https://www.notion.so/Physical-Layer-Security-in-Satellite-Communication-State-of-the-art-and-Open-Problems-2023-1e1420461a5280a9bb16ce89b037deba?pvs=21)
+
+위성 통신에서 도청, 재밍, 스푸핑을 방어하기 위한 물리 계층 보안(PLS) 기술을 포괄적으로 정리하였다.
+
+신호 처리 기반(빔포밍, 인공 잡음)과 키 합의 기반 접근법을 비교 분석하고, 다양한 성능 지표(비밀 용량, 에너지 효율 등)를 제시한다.
+
+SATCOM, GNSS, IoT, 광통신, 위성 간 통신 도메인별로 PLS 적용 가능성을 탐색하였다.
+
+채널 정보 불확실성, 다중 사용자 환경, 양자 위협 대비 등 미래 연구 과제도 구체적으로 정리하였다.
+
+[저궤도 위성통신 단말용 위상배열 안테나 시스템 기술 동향 (2025)](https://www.notion.so/2025-1e1420461a52803b92a5ea11bec71d1f?pvs=21)
+
+저궤도 위성통신 단말용 위상배열 안테나 시스템은 빠른 빔 조향과 고지향성 특성을 통해 통신 신호의 누설을 최소화하고, 간섭 및 재밍 공격에 대한 회피 능력을 강화한다.
+
+특히 다중빔 및 동적 빔 제어 기능은 표적화 공격에 대한 복구성과 회복탄력성을 높인다.
+
+빔포밍칩은 단말 내 소자별 정밀 신호 제어를 가능하게 하여 도청 및 스푸핑 위험을 감소시키고, 물리 계층 기반 보안성을 향상시킨다.
+
+결과적으로 위성 단말은 통신 품질뿐만 아니라 물리적 보안성까지 내재화하는 방향으로 진화하고 있다.
+
+[위성/이동 통신 시스템에서의 가상화 기술 동향](https://www.notion.so/1e1420461a52800d9c0bf14e10b726e5?pvs=21)
+
+이 논문은 위성 및 이동 통신 시스템에 가상화 기술을 적용하여, 하드웨어 고정성을 탈피하고 네트워크 기능을 유연하게 배치할 수 있는 구조를 제시한다.
+
+특히 저궤도 위성통신에서는 Regenerative 위성에 가상화 기반 소프트웨어 구조를 도입해, 고장 시 원격 복구와 서비스 연속성을 확보할 수 있도록 한다.
+
+네트워크 슬라이싱 및 소프트웨어 정의 네트워크(SDN) 기반 통합 관리를 통해 다양한 서비스별 보안 정책 적용과 격리(Isolation)를 강화할 수 있다.
+
+결국, 물리적 제약이 큰 우주 환경에서도 소프트웨어 기반으로 네트워크 보안성과 복원력을 높이는 방향으로 발전하고 있음을 보여준다.
+
+---
+
+위성 관련 통신의 보안 실태
+
+논문의 목적 및 범위: 2025년 기준 인공위성 통신 방법 인RF와 광통신 현황 → 주요 위협 소개 → 최신 방어 기술 및 미래 대응 기술 소개
+
+### 현재 기술
+
+현재 위성 통신 : 레이저(광) 통신 vs RF 기반 통신
+
+- RF기반
+    - **UHF (300 MHz–3 GHz)**
+        - 군사/정부용 통신, 강한 기상 저항성.
+    - **S-band (2–4 GHz)**
+        - 위성 명령/제어, 항공기/선박 통신, 위성 탐사.
+    - **X-band (8–12 GHz)**
+        - 군사용, 높은 신뢰성과 보안성.
+    - **Ku-band (12–18 GHz), Ka-band (26–40 GHz)**
+        - 방송 위성, 인터넷 접속, 고속 데이터 통신.
+    - **Q/V-band (33–75 GHz)**
+        - 차세대 고용량 통신 실험용, 향후 상용화 가능성 높음
+- 광통신
+    - NASA의 **LCRD (Laser Comm Relay Demonstration)**
+    - SpaceX의 **Starlink inter-satellite optical link**
+    - ESA의 **EDRS (European Data Relay System)**
+
+- RF 기반 통신의 보안 위험
+    - UHF / S-band / X-band: 재밍, 스푸핑, 도청
+    - Ku / Ka-band :  기상 영향 기반의 다운그레이드 공격, SATCOM 터미널 해킹
+    - Q/V-band
+- 광통신 기반 통신
+    - EDRS, LCRD, Starlink Optical Link : 옵틱 스누핑, 물리적 간섭 공격, 소프트웨어 취약점 기반 우회
+
+---
+
+---
+
+# 주요 위협
+
+## 1. Viasat KA-SAT 위성 인터넷 공격 (2022년 2월)
+
+- **공격 개요**: 러시아의 우크라이나 침공 당일, Viasat의 KA-SAT 위성 네트워크가 사이버 공격을 받아 수만 대의 모뎀이 비활성화되었습니다.[ESPI+5Wikipedia+5Wikipedia+5](https://en.wikipedia.org/wiki/Viasat_%28American_company%29?utm_source=chatgpt.com)
+- **공격 방식**: 공격자는 VPN 장비의 설정 오류를 이용해 관리 네트워크에 침투한 후, 모뎀의 펌웨어를 손상시키는 'AcidRain' 와이퍼 악성코드를 배포하여 기기를 무력화시켰습니다.
+- **영향**: 우크라이나 및 유럽 전역의 수만 명이 인터넷 연결을 상실하였으며, 독일의 에너콘 풍력 터빈 5,800대의 원격 모니터링이 중단되었습니다. [cyberconflicts.cyberpeaceinstitute.org](https://cyberconflicts.cyberpeaceinstitute.org/law-and-policy/cases/viasat?utm_source=chatgpt.com)
+
+---
+
+## 2. Starlink 사용자 단말기 보안 취약점 시연 (2022년 8월)
+
+- **공격 개요**: 보안 연구원 Lennert Wouters는 Starlink 위성 인터넷 단말기(Dishy McFlatface)에 물리적 접근을 통해 보안 시스템을 우회하는 방법을 시연하였습니다.[WIRED](https://www.wired.com/story/starlink-internet-dish-hack?utm_source=chatgpt.com)
+- **공격 방식**: 약 25달러의 부품으로 제작된 모드칩을 사용하여 전압 결함 주입 공격을 통해 보안 부팅 절차를 우회하고, 단말기의 소프트웨어에 접근하였습니다.
+- **영향**: 이 공격은 단말기 수준에서의 보안 취약점을 드러냈으며, Starlink는 보안 패치를 배포하였으나 기존 단말기는 여전히 취약할 수 있습니다. [WIRED](https://www.wired.com/story/starlink-internet-dish-hack?utm_source=chatgpt.com)
+
+---
+
+## 3. ROSCOSMOS 위성 시스템 해킹 주장 (2022년 3월)
+
+- **공격 개요**: 해커 그룹 NB65는 러시아의 ROSCOSMOS 위성 시스템을 해킹하여 차량 추적 시스템을 마비시키고 내부 문서를 유출했다고 주장하였습니다.[arXiv](https://arxiv.org/abs/2402.10324?utm_source=chatgpt.com)
+- **공격 방식**: 공격자는 위성 이미지 시스템에 접근하여 데이터를 유출하고 시스템을 비활성화하였다고 주장하였으며, ROSCOSMOS는 이를 부인하였습니다.[arXiv](https://arxiv.org/abs/2402.10324?utm_source=chatgpt.com)
+- **영향**: 공식적인 확인은 없으나, 해커 그룹은 관련 증거를 공개하였으며, 이는 우주 기반 시스템의 보안 취약성을 강조하는 사례로 언급됩니다.
+
+---
+
+## 4. 이란 해커 그룹의 위성 및 방위 산업 대상 공격 (2023년)
+
+- **공격 개요**: 이란의 해커 그룹 Peach Sandstorm(APT33)은 방위, 위성, 제약 분야의 기업을 대상으로 광범위한 사이버 공격을 수행하였습니다.[Axios](https://www.axios.com/2023/09/15/iranian-hackers-target-satellite-defense-firms-microsoft?utm_source=chatgpt.com)
+- **공격 방식**: 비밀번호 추측 공격을 통해 사용자 계정을 탈취하고, 합법적인 자격 증명을 이용하여 시스템에 접근하였습니다.
+- **영향**: 수천 개의 기업이 공격 대상이 되었으며, 일부 기업은 시스템 침해를 겪었습니다. [Axios](https://www.axios.com/2023/09/15/iranian-hackers-target-satellite-defense-firms-microsoft?utm_source=chatgpt.com)
+
+---
+
+## 5. 우크라이나 1+1 미디어 그룹 위성 방송 공격 (2024년 4월)
+
+- **공격 개요**: 우크라이나의 1+1 미디어 그룹은 위성 방송 채널이 사이버 공격을 받아 39개 채널의 송출이 중단되었습니다.[Reuters](https://www.reuters.com/world/europe/ukraines-11-media-group-reports-cyberattack-satellite-tv-channels-2024-04-17/?utm_source=chatgpt.com)
+- **공격 방식**: Astra 4A 위성의 트랜스폰더를 통한 송출이 방해를 받아 방송이 중단되었으며, 이는 러시아의 전파 방해 활동의 일환으로 추정됩니다.[Reuters](https://www.reuters.com/world/europe/ukraines-11-media-group-reports-cyberattack-satellite-tv-channels-2024-04-17/?utm_source=chatgpt.com)
+- **영향**: 일부 채널은 2시간 후 송출이 재개되었으나, 공격은 지속되었습니다. [Reuters](https://www.reuters.com/world/europe/ukraines-11-media-group-reports-cyberattack-satellite-tv-channels-2024-04-17/?utm_source=chatgpt.com)
+
+---
+
+---
+
+# 미래 기술
+
+이론적인 기술
+
+1. 시맨틱 통신
+2. 양자위성통신
+3. 다중 궤도 위성 네트워크
+4. 위성 간 광학 링크
+5. 우주 에지 컴퓨팅
+6. 소프트웨어 정의 위성
+7.저궤도 위성 기반 통합 네트워크 (LEO Satellite Integrated Network)
+8.위상배열 안테나 시스템 (Phased Array Antenna System)
+9.우주 인터넷/글로벌 커버리지 (Space Internet/Global Coverage)
+10.고궤도 통신 시스템 (High Orbit Communication System)
+
+## 3개 간추림
+
+1. 양자위성통신 (Quantum Satellite Communication)
+물리법칙 기반 절대 보안: 광자의 양자 중첩/얽힘 원리를 활용한 QKD(양자키분배) 구현. 중국 묵자호로 1,200km 거리 실증 완료.
+    
+    도청 불가능성: 측정 시 파동함수 붕괴로 복제 방지. ID Quantique社 20Mb/s 양자엔트로피 생성기 상용화.
+    
+    양자컴퓨팅 내성: 기존 암호체계 대비 미래 보안성 보장.
+    
+2. 다중 궤도 위성 네트워크 (Multi-Orbit Satellite Network)
+분산형 보안 아키텍처: GEO/MEO/HEO 궤도 통합으로 단일 실패점 제거.
+    
+    동적 네트워크 전환: Honeywell JetWave X시스템이 200Mbps 속도로 자동 네트워크 스위칭.
+    
+    전자전 대응력: Viasat Ka·Global Xpress 복합망으로 재밍 공격 차단.
+    
+3. 위성 간 광학 링크 (Inter-Satellite Optical Links)
+물리적 차단 기술: 레이저 기반 광통신으로 RF 대비 100배 보안성 향상.
+    
+    스푸핑 방지: 5,000km 거리에서 3U 크기 위성간 초정밀 광학 신호 전송.
+    
+    저지연 암호화: Spire社 OCT 기술로 데이터 레이턴시 90% 감소.
+    
+
+---
+
+## 참고논문
+
+저궤도 위성통신 현황 및 시장동향 - 전성호, 이수광 정보통신정책연구원
+
+---
+
+### 참고하면 좋은 논문
+
+### **지상-위성 채널을 위한 양자 및 포스트-양자 보안 통합**
+
+- **제목**: *Combined Quantum and Post-Quantum Security for Earth-Satellite Channels*
+- **출처**: arXiv, 2025년 2월
+- **요약**: 이 연구는 지상-위성 채널에서의 양자 키 분배(QKD) 시스템의 실시간 프로토타입을 개발하고, 양자 보안과 기존 암호화 방법을 통합하여 양자 저항성을 갖춘 보안 통신을 구현합니다. 특히, BBM92 프로토콜과 AES를 결합하여 양자 및 포스트-양자 보안을 동시에 제공합니다
+
+### **LEO 위성 네트워크를 위한 보안적이고 스펙트럼 효율적인 그룹 통신 스킴**
+
+- **제목**: *StarCast: A Secure and Spectrum-Efficient Group Communication Scheme for LEO Satellite Networks*
+- **출처**: arXiv, 2025년 2월
+- **요약**: 이 논문은 LEO 위성 네트워크에서 그룹 통신의 보안성과 스펙트럼 효율성을 동시에 향상시키기 위한 StarCast 스킴을 제안합니다. 이 스킴은 암호문 정책 속성 기반 암호화(CP-ABE)를 활용하여 세밀한 접근 제어를 구현하며, 키 관리 오버헤드를 줄이고 스펙트럼 재사용을 극대화합니다.
+
+### **GEO 위성 통신의 궤도 내 재밍 탐지를 위한 적응형 기법**
+
+- **제목**: *Adaptive Detection of On-Orbit Jamming for Securing GEO Satellite Communication*
+- **출처**: arXiv, 2024년 11월
+- **요약**: 이 연구는 정지궤도(GEO) 위성 통신에서의 궤도 내 재밍 공격을 탐지하기 위한 기계 학습 기반 접근법을 제안합니다. 랜덤 포레스트 알고리즘과 주성분 분석(PCA)을 활용하여 정적 및 시간 변동 재밍 모드를 효과적으로 탐지합니다.
+
+### **저궤도 위성통신 현황 및 시장동향**
+
+[https://www-riss-kr.libra.cnu.ac.kr/search/detail/DetailView.do?p_mat_type=1a0202e37d52c72d&control_no=3f24f0588002a14547de9c1710b0298d&keyword=위성 통신](https://www-riss-kr.libra.cnu.ac.kr/search/detail/DetailView.do?p_mat_type=1a0202e37d52c72d&control_no=3f24f0588002a14547de9c1710b0298d&keyword=%EC%9C%84%EC%84%B1%20%ED%86%B5%EC%8B%A0)
+
+### Comprehensive Survey towards Security Authentication Methods for Satellite Communication Systems
+
+이 논문은 **위성 통신 시스템(SatCom)** 에서의 **보안 인증(Security Authentication)** 방법에 대한 포괄적 서베이입니다.
+
+위성 통신은 넓은 커버리지, 높은 전송 속도, 강력한 장애 내성을 가지지만, 그만큼 **보안 위협**(특히 지상 네트워크와의 통합으로 인한 불법 접근, 도청, DDoS 등)에 취약합니다.
+
+따라서 SatCom에서 강력한 인증 기술이 필수적이며, 이 논문은 현재까지 제안된 다양한 인증 기술을 **다섯 가지 분류**로 체계적으로 정리하고, 이들 방법의 **장단점 비교 분석**과 **미래 연구 방향**을 제시합니다.
+
+### A Survey Paper on Security Issues in Satellite Communication Network Infrastructure
+
+위성 통신 네트워크에 존재하는 보안 위험을 정리
+
+---
+
+### 현재까지 사용중인 자료는 다음과 같다
+
+**Satellite-based communications security: A survey of threats, solutions, and research challenges (2022)**
+
+Looking to the Skies: The Importance of Satellite Cybersecurity(2024)
+
+SoK: Evaluating the Security of Satellite Systems(2023)
+
+Physical Layer Security in Satellite Communication: State-of-the-art and Open Problems(2023)
+
+저궤도 위성통신 단말용 위상배열 안테나 시스템 기술 동향 (2025)
+
+위성/이동 통신 시스템에서의 가상화 기술 동향
+
+[1] 정보통신기획평가원, ICT SPOT ISSUE 2024-09, 대전, IITP, December, 2024.
+
+[2] Reuters, "Ukraine's 1+1 Media Group Reports Cyberattack on Satellite TV Channels," April 17, 2024
+
+[3] 정진철, 염인복, 위성탑재체 RF기술동향, 한국전자통신연구원, 전자통신동향분석 제 21권 제4호, 2006년 8월.
+
+[4] P. Tedeschi, S. Sciancalepore, and R. Di Pietro, "Satellite-based communications security: A survey of threats, solutions, and research challenges," Computer Networks, vol. 210, pp. 1-27, Nov. 2022.
+
+[5] S. M. J. Shah, A. Nasir, and H. Ahmed, "A Survey Paper on Security Issues in Satellite Communication Network Infrastructure," *International Journal of Engineering Research and General Science*, vol. 2, no. 6, pp. 887-900, Oct.–Nov. 2014.
+
+[6] M. Lenhart, M. Spanghero, and P. Papadimitratos, "DEMO: Relay/Replay Attacks on GNSS signals," *arXiv preprint arXiv:2202.10897*, Feb. 2022.
+
+[7] M. Conti, N. Dragoni, and V. Lesyk, "A Survey of Man-In-The-Middle Attacks," *IEEE Communications Surveys & Tutorials*, vol. 18, no. 3, pp. 2027–2051, third quarter 2016.
+
+---
+
+### 교수님 피드백
+
+- 공격 / 방어 / 한계점 유기성있게 작성
+- 중간자 공격 삭제
+
+[Starshields for iOS: Navigating the Security Cosmos in Satellite Communication](https://www.notion.so/Starshields-for-iOS-Navigating-the-Security-Cosmos-in-Satellite-Communication-1e4420461a5280f8a5c7ce04e4507f67?pvs=21)
+
+SoK on PKI and Location Privacy Challenges in Space Networks
+위 두 논문 참고해서 공격
+
+- 상용화된 보안 기법에서 약점 또는 우회 방법 추가
