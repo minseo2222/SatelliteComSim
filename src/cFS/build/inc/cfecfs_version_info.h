@@ -1,7 +1,7 @@
 /* Auto-generated version information file */
 #define MISSION_CONFIG      "sample"
 #define MISSION_NAME        "SampleMission"
-#define SAMPLEMISSION_VERSION "80d1e14-dirty"
+#define SAMPLEMISSION_VERSION "d461418-dirty"
 #define CI_LAB_VERSION "error/unknown"
 #define TO_LAB_VERSION "error/unknown"
 #define SCH_LAB_VERSION "error/unknown"

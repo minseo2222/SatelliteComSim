@@ -23,8 +23,12 @@ sample_app_table.h
 /home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/sample_app_table.h
 string.h
 -
+stddef.h
+-
 sample_lib.h
 /home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/sample_lib.h
+sample_app_msg.h
+/home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/sample_app_msg.h
 
 /home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/sample_app.h
 cfe.h
@@ -47,6 +51,10 @@ sample_app_msg.h
 /home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/sample_app_events.h
 
 /home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/sample_app_msg.h
+cfe.h
+/home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/cfe.h
+cfe_sb.h
+/home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/cfe_sb.h
 
 /home/vboxuser/SatelliteComSim/src/cFS/apps/sample_app/fsw/src/sample_app_version.h
 
