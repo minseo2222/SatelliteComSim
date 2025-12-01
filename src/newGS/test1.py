@@ -6,7 +6,7 @@ import os, sys, csv, time, socket, pathlib, subprocess, shlex, signal, traceback
 GS_LISTEN_HOST = os.getenv("GS_LISTEN_HOST", "0.0.0.0")
 GS_LISTEN_PORT = int(os.getenv("GS_LISTEN_PORT", "50000"))   # GS→test1 수신
 UPLINK_DST_HOST = os.getenv("UPLINK_DST_HOST", "127.0.0.1")
-UPLINK_DST_PORT = int(os.getenv("UPLINK_DST_PORT", "1234"))  # GNURadio 미사용 → CI_LAB 직결
+UPLINK_DST_PORT = int(os.getenv("UPLINK_DST_PORT", "8600"))  # GNURadio 미사용 → CI_LAB 직결
 
 LOG_DIR = pathlib.Path(os.getenv("LOG_DIR", "log")); LOG_DIR.mkdir(parents=True, exist_ok=True)
 CSV_PATH = LOG_DIR / "sample_app_sent.csv"
