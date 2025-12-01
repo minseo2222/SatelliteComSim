@@ -1,162 +1,125 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import socket
-import struct
-import csv
+import socket, struct, csv
 from pathlib import Path
 from datetime import datetime
 
-# -----------------------------
-# 환경 설정
-# -----------------------------
-CFS_LISTEN_IP   = "0.0.0.0"
-CFS_LISTEN_PORT = 1235                 # cFS TO_LAB가 내보내는 UDP 포트
-GNURADIO_TX_IP  = "127.0.0.1"
-GNURADIO_TX_PORT= 8602                 # GNURadio가 받는 포트(옵션)
+LISTEN_IP, LISTEN_PORT = "0.0.0.0", 8890
 
-# SAMPLE_APP 텍스트 텔레메트리 MID
-SAMPLE_APP_TEXT_TLM_MID = 0x08A9
+# ---- 필터: SAMPLE_APP 텍스트 텔레메트리 후보 ----
+FILTER_SID = {0x08A9, 0x1882}   # Stream ID로 보이는 값들
+FILTER_APID = {0x0882, 0x08A9}  # APID로 보이는 값들
 
-# 로그 파일 경로 (newGS/log/ 아래)
 ROOTDIR = Path(__file__).resolve().parent
-LOG_DIR = ROOTDIR / "log"
+LOG_DIR = ROOTDIR / "log"; LOG_DIR.mkdir(parents=True, exist_ok=True)
 RECV_CSV = LOG_DIR / "sample_app_recv.csv"
 
-# -----------------------------
-# 공통 유틸
-# -----------------------------
-def now_ts():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def now_ts(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def ensure_csv_header(path, header):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if (not path.exists()) or path.stat().st_size == 0:
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(header)
+def ensure_csv_header(p, hdr):
+    if (not p.exists()) or p.stat().st_size == 0:
+        with open(p, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(hdr)
 
-def to_hex(b: bytes) -> str:
-    return "".join(f"{x:02X}" for x in b)
+def to_hex(b): return "".join(f"{x:02X}" for x in b)
+def bytes_to_bits(b): return "".join(f"{x:08b}" for x in b)
 
-def bytes_to_bits(b: bytes) -> str:
-    return "".join(f"{x:08b}" for x in b)
-
-# -----------------------------
-# CCSDS 기본 헤더 파싱
-# -----------------------------
 def parse_ccsds_header(pkt):
-    if len(pkt) < 6:
-        return None
-    (stream_id, seq, length) = struct.unpack(">HHH", pkt[:6])
-    apid = stream_id & 0x07FF
-    return {
-        "mid": stream_id,
-        "apid": apid,
-        "seq": seq,
-        "len": length,
-        "total_len": length + 7
-    }
+    if len(pkt) < 6: return None
+    (sid, seq, length) = struct.unpack(">HHH", pkt[:6])
+    apid = sid & 0x07FF
+    return {"sid": sid, "apid": apid, "seq": seq, "len": length, "total_len": length + 7}
 
-# -----------------------------
-# SAMPLE_APP 텍스트 TLM 파싱
-# -----------------------------
-def parse_sample_text_tlm(pkt):
-    if len(pkt) < 14:
-        return None
-    # [12:14] TextLen, [14:142] Text[128]
-    text_len = struct.unpack(">H", pkt[12:14])[0]
-    text_raw = pkt[14:14+128]
-    text = text_raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
-    if text_len > len(text):
-        text_len = len(text)
-    return text_len, text
+def is_sample_text(hdr):
+    sid = hdr["sid"]; apid = hdr["apid"]
+    return (sid in FILTER_SID) or (apid in FILTER_APID)
 
-# -----------------------------
-# GNURadio로 패킷 패스스루(옵션)
-# -----------------------------
-def forward_to_gnuradio(sock_tx, data):
-    try:
-        sock_tx.sendto(data, (GNURADIO_TX_IP, GNURADIO_TX_PORT))
-    except Exception:
-        pass
+def extract_text(pkt: bytes) -> str:
+    """
+    SAMPLE_APP Text TLM을 두 포맷으로 시도:
+    A) [12:14]=TextLen, [14:]=Text(최대128)
+    B) [8: ] 문자열 (예: "ID:message")
+    """
+    # A 포맷
+    if len(pkt) >= 14:
+        try:
+            text_len = (pkt[12] << 8) | pkt[13]
+            text_raw = pkt[14:14+min(128, len(pkt)-14)]
+            text = text_raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+            # text_len 보정
+            if text_len > len(text):
+                text_len = len(text)
+            if text:
+                return text[:text_len] if text_len else text
+        except Exception:
+            pass
+    # B 포맷
+    if len(pkt) > 8:
+        try:
+            text = pkt[8:].replace(b"\x00", b"").decode("utf-8", errors="ignore")
+            # 너무 지저분하면 간단히 ':' 포함 여부로 거르기
+            if ":" in text:
+                return text.strip()
+        except Exception:
+            pass
+    return ""
 
-# -----------------------------
-# 메인
-# -----------------------------
+def split_id_text(text: str):
+    sid = ""
+    body = text
+    parts = text.split(":", 1)
+    if len(parts) == 2 and parts[0].isdigit():
+        sid, body = parts[0], parts[1]
+    return sid, body
+
 def main():
     ensure_csv_header(RECV_CSV, [
-        "ts","direction","id","text","mid_hex","apid_hex","cc_dec","len",
+        "ts","direction","id","text","sid_hex","apid_hex","cc_dec","len",
         "src_ip","src_port","head_hex16","text_hex","bits"
     ])
 
-    # 소켓 준비 (cFS 수신)
-    sock_rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_rx.bind((CFS_LISTEN_IP, CFS_LISTEN_PORT))
-    sock_rx.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((LISTEN_IP, LISTEN_PORT))
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4*1024*1024)
 
-    # GNURadio TX 소켓
-    sock_tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    print(f"[test3.py] Listening cFS on {CFS_LISTEN_IP}:{CFS_LISTEN_PORT} ...")
-    print(f"[test3.py] Forwarding raw CCSDS to GNURadio TX at {GNURADIO_TX_IP}:{GNURADIO_TX_PORT}")
-    print(f"[test3.py] Filtering SAMPLE_APP_TEXT_TLM (MID=0x{SAMPLE_APP_TEXT_TLM_MID:04X})")
+    print(f"[test3] Listening from test4 on {LISTEN_IP}:{LISTEN_PORT} ...")
+    print(f"[test3] Showing only SAMPLE_APP Text TLM (sid in {sorted(FILTER_SID)}, apid in {sorted(FILTER_APID)})")
 
     while True:
-        data, addr = sock_rx.recvfrom(2048)
+        data, addr = sock.recvfrom(4096)
         src_ip, src_port = addr
         hdr = parse_ccsds_header(data)
-        if not hdr:
+        if not hdr: 
             continue
 
-        # GNURadio로는 모든 패킷을 그대로 전달(필요 시 주석 처리)
-        forward_to_gnuradio(sock_tx, data)
-
-        # SAMPLE_APP_TEXT_TLM만 처리/로깅
-        if hdr["mid"] != SAMPLE_APP_TEXT_TLM_MID:
-            continue
-
-        parsed = parse_sample_text_tlm(data)
-        if not parsed:
-            continue
-        text_len, text = parsed
-
-        # ID 추출
-        sid = None
-        text_body = text
-        p = text.split(":", 1)
-        if len(p) == 2 and p[0].isdigit():
-            try:
-                sid = int(p[0])
-                text_body = p[1]
-            except Exception:
-                text_body = text
-
-        # 부가 필드
+        # cc (function code 추정)
+        cc = data[6] if len(data) > 6 else None
         head_hex16 = " ".join(f"{b:02X}" for b in data[:16])
-        text_bytes = text_body.encode("utf-8", errors="ignore")
-        text_hex = to_hex(text_bytes)
-        bits = bytes_to_bits(text_bytes)
-        if bits:
-            bits = "b:" + bits  # 엑셀 숫자 인식 방지
 
-        ts = now_ts()
-        print(f"[test3.py] SAMPLE_APP_TEXT_TLM mid=0x{hdr['mid']:04X} apid=0x{hdr['apid']:04X} "
-              f"len={hdr['total_len']} TextLen={text_len} Text={text!r}")
+        # SAMPLE_APP 텍스트만 통과
+        if not is_sample_text(hdr):
+            continue
+
+        # 텍스트 추출
+        text = extract_text(data)
+        sid_str, text_body = split_id_text(text)
+
+        # 콘솔 출력
+        print(f"[test3] [TEXT] {now_ts()} sid=0x{hdr['sid']:04X} apid=0x{hdr['apid']:04X} cc={(cc if cc is not None else -1)} text={text!r}")
+
+        # CSV 기록
+        text_bytes = text_body.encode("utf-8", errors="ignore")
+        text_hex   = to_hex(text_bytes)
+        bits = bytes_to_bits(text_bytes)
+        if bits: bits = "b:" + bits
 
         with open(RECV_CSV, "a", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([
-                ts,                         # ts
-                "recv",                     # direction
-                (sid if sid is not None else ""),  # id
-                text_body,                  # text
-                f"0x{hdr['mid']:04X}",      # mid_hex
-                f"0x{hdr['apid']:04X}",     # apid_hex
-                "",                         # cc_dec (수신 텔레메트리는 공란)
-                len(data),                  # len
-                src_ip, src_port,           # src_ip, src_port
-                head_hex16,                 # head_hex16
-                text_hex,                   # text_hex
-                bits                        # bits
+                now_ts(), "recv", sid_str, text_body,
+                f"0x{hdr['sid']:04X}", f"0x{hdr['apid']:04X}",
+                (cc if cc is not None else ""), len(data),
+                src_ip, src_port, head_hex16, text_hex, bits
             ])
 
 if __name__ == "__main__":
