@@ -1,0 +1,53 @@
+id: leo_channel_model
+label: Channel Model
+flags: [show_id]
+
+parameters:
+-   id: value
+    label: Ignore Me
+    dtype: raw
+    default: '''fine'''
+    hide: all
+-   id: sample_rate
+    label: Sampling Rate
+    dtype: real
+-   id: model
+    label: Channel Model
+    dtype: raw
+    default: model_variable
+-   id: noise_type
+    label: Noise
+    dtype: int
+    default: '1'
+    options: ['0', '1']
+    option_labels: [None, White Gaussian]
+- id: store_csv
+  label: CSV logging
+  dtype: int
+  default: '0'
+  options: [ '0', '1' ]
+  option_labels: [ Off, On ]
+- id: filename
+  label: File
+  dtype: file_save
+  hide: ${ ('none' if int(store_csv)==1 else 'all') }
+
+
+
+inputs:
+-   domain: stream
+    dtype: complex
+
+outputs:
+-   domain: stream
+    dtype: complex
+
+-   id: pdus
+    domain: message
+    optional: true
+
+templates:
+    imports: import gnuradio.leo
+    make: gnuradio.leo.channel_model.make(${sample_rate}, ${model}, ${noise_type}, ${store_csv}, ${filename})
+
+file_format: 1

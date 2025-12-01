@@ -1,174 +1,105 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-run_com.py
-
-SatelliteComSim/src/newGS 디렉토리에 있는 GroundSystem.py와
-test1.py~test4.py를 한 번에 실행하도록 하는 런처 스크립트입니다.
-
-- 실행 위치: newGS 폴더 내부에서 `./run_com.py` 로 실행
-- 각 프로세스의 stdout을 터미널에 prefix와 함께 출력해 줍니다.
-"""
-
-import subprocess
-import threading
 import os
 import sys
 import time
+import signal
+import argparse
+import subprocess
+from pathlib import Path
 
-# =========================
-# 1) newGS 내부 스크립트 경로들
-# =========================
+ROOT = Path(__file__).resolve().parent
+LOG_DIR = ROOT / "log"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-# GroundSystem.py는 이제 newGS 폴더 안에 있습니다.
-GS_CMD    = ["python3", "GroundSystem.py"]   # GS 실행 커맨드
-TEST1_CMD = ["python3", "test1.py"]
-TEST2_CMD = ["python3", "test2.py"]
-TEST3_CMD = ["python3", "test3.py"]
-TEST4_CMD = ["python3", "test4.py"]
+PROCS = [
+    ("test4", "test4.py"), # Downlink
+    ("test3", "test3.py"), # CSV Log
+    ("test2", "test2.py"), # Uplink Physics Engine
+    ("test1", "test1.py"), # Traffic Gen
+    ("GroundSystem", "GroundSystem.py") # GUI
+]
 
-# =========================
-# 2) 프로세스 출력 포워딩 함수
-# =========================
+def get_run_env():
+    """ PYTHONPATH 자동 설정 """
+    env = os.environ.copy()
+    paths = [
+        "/usr/local/lib/python3.8/dist-packages",
+        "/usr/local/lib/python3/dist-packages",
+        str(ROOT)
+    ]
+    curr = env.get("PYTHONPATH", "")
+    for p in paths:
+        if p not in curr and os.path.isdir(p):
+            curr = f"{p}:{curr}" if curr else p
+    env["PYTHONPATH"] = curr
+    # 버퍼링 비활성화
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
 
-def forward_output(proc, name):
-    """
-    proc.stdout에서 한 줄씩 읽어와 '[name] ...' 형식으로 터미널에 출력합니다.
-    """
-    if proc.stdout is None:
-        return
-    for raw_line in proc.stdout:
-        try:
-            line = raw_line.decode('utf-8', errors='ignore').rstrip("\n")
-        except:
-            line = str(raw_line)
-        print(f"[{name}] {line}")
-    proc.stdout.close()
+def start_process(name, script_rel):
+    spath = (ROOT / script_rel).resolve()
+    if not spath.exists():
+        print(f"[ERROR] {name}: 파일 없음 ({spath})")
+        return None
 
-# =========================
-# 3) 프로세스 실행 후 상태를 확인하는 헬퍼
-# =========================
+    log_path = LOG_DIR / f"{name}.log"
+    log_fd = open(log_path, "w", encoding="utf-8") # 덮어쓰기 모드
 
-def check_process_started(proc, name, delay=0.5):
-    """
-    Popen한 proc가 delay 초 뒤에도 살아 있는지(poll() is None) 확인합니다.
-    만약 종료되었다면 stderr/stdout 버퍼에 남은 내용을 읽어와 에러로 출력합니다.
-    """
-    time.sleep(delay)
-    if proc.poll() is not None:
-        # 이미 종료되어 있다면
-        print(f"[run_com.py] ERROR: '{name}' 프로세스가 바로 종료되었습니다.  exit code={proc.poll()}")
-        try:
-            # stdout에 에러 로그가 남아 있을 수 있으므로 읽어서 보여준다
-            out = proc.stdout.read().decode('utf-8', errors='ignore')
-            if out:
-                print(f"[{name}] stdout/stderr 로그:\n{out}")
-        except Exception:
-            pass
-
-
-# =========================
-# 4) 메인 실행 로직
-# =========================
+    print(f"[INFO] {name} 시작... (Log: {log_path.name})")
+    
+    try:
+        # 새 세션으로 실행 (Ctrl+C 전파 방지용 등)
+        if os.name == "nt":
+            p = subprocess.Popen([sys.executable, "-u", str(spath)], 
+                                 cwd=str(ROOT), env=get_run_env(), 
+                                 stdout=log_fd, stderr=subprocess.STDOUT,
+                                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            p = subprocess.Popen([sys.executable, "-u", str(spath)], 
+                                 cwd=str(ROOT), env=get_run_env(), 
+                                 stdout=log_fd, stderr=subprocess.STDOUT,
+                                 preexec_fn=os.setsid)
+        return p
+    except Exception as e:
+        print(f"[ERROR] {name} 실행 실패: {e}")
+        return None
 
 def main():
-    # 1) 현재 작업 디렉토리를 run_com.py가 있는 newGS 폴더로 맞춥니다.
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    os.chdir(script_dir)
-    print(f"[run_com.py] Working directory: {script_dir}\n")
-
-    procs = []
-
-    # -------------------------
-    # 2) GroundSystem.py 실행
-    # -------------------------
-    print("[run_com.py] ▶ GS(GroundSystem.py) 실행 중…")
+    print(f"=== 위성 통신 시뮬레이터 통합 런처 ===")
+    print(f"경로: {ROOT}")
+    
+    children = []
+    
     try:
-        p_gs = subprocess.Popen(
-            GS_CMD,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT
-        )
-        procs.append(("GS", p_gs))
-        # GS가 초기화될 충분한 시간 대기
-        check_process_started(p_gs, "GS")
-    except FileNotFoundError:
-        print(f"[run_com.py] ERROR: GS_CMD({GS_CMD}) 실행 파일을 찾을 수 없습니다.")
-        print("             newGS 폴더 내부에 GroundSystem.py가 있는지 확인하세요.\n")
-    except Exception as e:
-        print(f"[run_com.py] GS 실행 중 오류: {e}\n")
+        for name, script in PROCS:
+            p = start_process(name, script)
+            if p:
+                children.append((name, p))
+                time.sleep(1) # 순차 실행 대기
+        
+        print("\n[RUNNING] 모든 프로세스가 실행되었습니다. 종료하려면 Ctrl+C를 누르세요.")
+        while True:
+            time.sleep(1)
+            # 죽은 프로세스 확인
+            for name, p in children:
+                if p.poll() is not None:
+                    print(f"[WARN] {name} 프로세스가 종료되었습니다 (Code: {p.returncode})")
+                    children.remove((name, p))
+            if not children:
+                break
 
-    # -------------------------
-    # 3) test1.py 실행
-    # -------------------------
-    print("[run_com.py] ▶ test1.py 실행 중…")
-    p1 = subprocess.Popen(
-        TEST1_CMD,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
-    )
-    procs.append(("test1", p1))
-    check_process_started(p1, "test1")
-
-    # -------------------------
-    # 4) test2.py 실행
-    # -------------------------
-    print("[run_com.py] ▶ test2.py 실행 중…")
-    p2 = subprocess.Popen(
-        TEST2_CMD,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
-    )
-    procs.append(("test2", p2))
-    check_process_started(p2, "test2")
-
-    # -------------------------
-    # 5) test3.py 실행
-    # -------------------------
-    print("[run_com.py] ▶ test3.py 실행 중…")
-    p3 = subprocess.Popen(
-        TEST3_CMD,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
-    )
-    procs.append(("test3", p3))
-    check_process_started(p3, "test3")
-
-    # -------------------------
-    # 6) test4.py 실행
-    # -------------------------
-    print("[run_com.py] ▶ test4.py 실행 중…")
-    p4 = subprocess.Popen(
-        TEST4_CMD,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
-    )
-    procs.append(("test4", p4))
-    check_process_started(p4, "test4")
-
-    # -------------------------
-    # 7) 각 프로세스 stdout을 별도 스레드에서 읽어와서 출력
-    # -------------------------
-    threads = []
-    for name, proc in procs:
-        if proc.stdout is None:
-            continue
-        t = threading.Thread(target=forward_output, args=(proc, name), daemon=True)
-        t.start()
-        threads.append(t)
-
-    # -------------------------
-    # 8) Ctrl+C 입력 시 모든 프로세스 종료
-    # -------------------------
-    try:
-        for name, proc in procs:
-            proc.wait()
     except KeyboardInterrupt:
-        print("\n[run_com.py] Ctrl+C 감지: 모든 서브프로세스를 종료합니다...")
-        for _, proc in procs:
-            proc.terminate()
-        sys.exit(0)
+        print("\n[STOP] 종료 요청 감지. 모든 프로세스를 정리합니다...")
+    finally:
+        for name, p in children:
+            if p.poll() is None:
+                if os.name != "nt":
+                    try: os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                    except: p.terminate()
+                else:
+                    p.terminate()
+                print(f" - {name} 종료됨")
 
 if __name__ == "__main__":
     main()
-
