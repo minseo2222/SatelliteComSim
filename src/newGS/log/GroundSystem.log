@@ -1,9 +1,3 @@
 [SYSTEM] RoutingService started.
 Attempting to wait for UDP messages
 Telemetry System started. Subscribed to GroundSystem
-[INFO] SENT_CSV=/home/vboxuser/SatelliteComSim/src/newGS/log/sample_app_sent.csv
-[INFO] RECV_CSV=/home/vboxuser/SatelliteComSim/src/newGS/log/sample_app_recv.csv
-[INFO] Refreshing telemetry data...
-[DEBUG] loaded rows: sent=32, recv=13
-[INFO] Refreshing telemetry data...
-[DEBUG] loaded rows: sent=32, recv=13

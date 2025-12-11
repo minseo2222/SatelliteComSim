@@ -1,3 +1,15 @@
 [test3] Listening from test4 on 0.0.0.0:8890 ...
 [test3] Showing only SAMPLE_APP Text TLM (sid in [2217, 6274], apid in [2178, 2217])
-[test3] [TEXT] 2025-12-02 04:45:42 sid=0x08A9 apid=0x00A9 cc=194 text='14:qweasdzxc'
+[test3] [TEXT] 2025-12-11 18:10:50 sid=0x08A9 seq=35 cc=53 text='1:normal'
+[test3] [TEXT] 2025-12-11 18:10:52 sid=0x08A9 seq=36 cc=56 text='2:normal 2'
+[test3] [TEXT] 2025-12-11 18:10:54 sid=0x08A9 seq=37 cc=58 text='3:normal 3'
+[test3] [TEXT] 2025-12-11 18:11:23 sid=0x08A9 seq=38 cc=86 text='5:drop attack(33%) 2'
+[test3] [TEXT] 2025-12-11 18:11:50 sid=0x08A9 seq=39 cc=113 text=']\x1cdհing attack'
+[test3] [TEXT] 2025-12-11 18:11:51 sid=0x08A9 seq=40 cc=115 text='}QJging attack 2'
+[test3] [TEXT] 2025-12-11 18:11:53 sid=0x08A9 seq=41 cc=117 text='('
+[test3] [TEXT] 2025-12-11 18:12:10 sid=0x08A9 seq=42 cc=133 text='10:replay attack'
+[test3] [TEXT] 2025-12-11 18:12:11 sid=0x08A9 seq=43 cc=134 text='10:replay attack'
+[test3] [TEXT] 2025-12-11 18:12:11 sid=0x08A9 seq=44 cc=135 text='11:replay attack 2'
+[test3] [TEXT] 2025-12-11 18:12:12 sid=0x08A9 seq=45 cc=136 text='11:replay attack 2'
+[test3] [TEXT] 2025-12-11 18:12:13 sid=0x08A9 seq=46 cc=137 text='12:replay attack 3'
+[test3] [TEXT] 2025-12-11 18:12:14 sid=0x08A9 seq=47 cc=138 text='12:replay attack 3'

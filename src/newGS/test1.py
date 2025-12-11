@@ -29,9 +29,10 @@ def ensure_csv_header(path: pathlib.Path):
     f = path.open("a", newline="", encoding="utf-8")
     w = csv.writer(f)
     if not found:
+        # [수정] 헤더에 'seq' 추가
         w.writerow([
-            "ts","direction","id","text","mid_hex","apid_hex","cc_dec","len",
-            "src_ip","src_port","head_hex16","text_hex","bits"
+            "ts","direction","id","text","mid_hex","apid_hex","cc_dec",
+            "seq", "len", "src_ip","src_port","head_hex16","text_hex","bits"
         ])
     return f, w
 
@@ -42,22 +43,22 @@ def bytes_to_bits(b: bytes) -> str:
     return "".join(f"{x:08b}" for x in b)
 
 def parse_mid_apid_cc(data: bytes):
-    """
-    MID(16b Big-endian), APID(하위 11b), CC(cmd code=byte6) 추출
-    """
     mid = apid = cc = None
     if len(data) >= 2:
-        mid = (data[0] << 8) | data[1]   # ✅ MID=StreamID 전체 16비트
-        apid = mid & 0x07FF              # ✅ APID=하위 11비트
+        mid = (data[0] << 8) | data[1]   # MID
+        apid = mid & 0x07FF              # APID
     if len(data) > 6:
         cc = data[6]
     return mid, apid, cc
 
+def parse_seq_count(data: bytes):
+    """CCSDS Primary Header(Byte 2,3)에서 Sequence Count(14bit) 추출"""
+    if len(data) >= 4:
+        raw_seq = ((data[2] & 0x3F) << 8) | data[3]
+        return raw_seq
+    return -1
+
 def parse_id_text_if_send_text(data: bytes):
-    """
-    SEND_TEXT(0x1882, cc=3)일 때만 'ID:TEXT\\x00...' 파싱
-    텍스트 시작 오프셋은 명령 구조에 맞게 8바이트 이후로 가정.
-    """
     mid, _, cc = parse_mid_apid_cc(data)
     if mid != SAMPLE_APP_CMD_MID or cc != SEND_TEXT_CC:
         return None, ""
@@ -99,9 +100,7 @@ def run_setup_script_async():
 
 def main():
     print(f"[{now_ts()}] test1 starting…")
-    print(f"[{now_ts()}] __file__={__file__}")
-    print(f"[{now_ts()}] CSV_PATH={CSV_PATH.resolve()}")
-
+    
     # 1) 수신 바인딩
     try:
         in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -133,49 +132,44 @@ def main():
 
         src_ip, src_port = addr
         mid, apid, cc = parse_mid_apid_cc(data)
+        seq = parse_seq_count(data) # [추가] 시퀀스 번호
         head_hex16 = " ".join(f"{b:02X}" for b in data[:16])
 
-        # 디버그: 현재 패킷의 MID/APID/CC 확인
-        print(f"[RECV] {src_ip}:{src_port} len={len(data)} mid=0x{(mid or 0):04X} apid=0x{(apid or 0):04X} "
-              f"cc={(cc if cc is not None else -1)} head={head_hex16}")
-        print(f"[DEBUG] mid/apid check => mid=0x{(mid or 0):04X}, apid=0x{(apid or 0):04X}, cc={cc}")
+        # 디버그: 현재 패킷 정보
+        print(f"[RECV] {src_ip}:{src_port} len={len(data)} mid=0x{(mid or 0):04X} seq={seq} "
+              f"cc={(cc if cc is not None else -1)}")
 
-        # SEND_TEXT일 때만 ID/TEXT 추출
+        # SEND_TEXT일 때만 ID/TEXT 추출 (참고용)
         sid, stext = parse_id_text_if_send_text(data)
-        if stext:
-            if sid is not None:
-                print(f"[TEXT] {sid}:{stext}")
-            else:
-                print(f"[TEXT] {stext}")
-
+        
         text_bytes = (stext or "").encode('utf-8', errors='ignore')
         text_hex = to_hex(text_bytes)
         bits = bytes_to_bits(text_bytes)
         if bits:
-            bits = "b:" + bits  # 엑셀 숫자 인식 방지
+            bits = "b:" + bits
 
-        # CSV(통일 스키마) 기록
+        # CSV 기록 (seq 포함)
         writer.writerow([
-            now_ts(),                      # ts
-            "sent",                        # direction
-            (sid if sid is not None else ""),  # id
-            (stext or ""),                 # text
-            f"0x{(mid or 0):04X}",         # mid_hex
-            f"0x{(apid or 0):04X}",        # apid_hex
-            (cc if cc is not None else ""),# cc_dec
-            len(data),                     # len
-            src_ip, src_port,              # src_ip, src_port
-            head_hex16,                    # head_hex16
-            text_hex,                      # text_hex
-            bits                           # bits
+            now_ts(),
+            "sent",
+            (sid if sid is not None else ""),
+            (stext or ""),
+            f"0x{(mid or 0):04X}",
+            f"0x{(apid or 0):04X}",
+            (cc if cc is not None else ""),
+            seq,  # <--- 중요: 매칭 키
+            len(data),
+            src_ip, src_port,
+            head_hex16,
+            text_hex,
+            bits
         ])
 
         # 포워딩
         try:
             out_sock.sendto(data, (UPLINK_DST_HOST, UPLINK_DST_PORT))
-            print(f"[FWD ] -> {UPLINK_DST_HOST}:{UPLINK_DST_PORT} len={len(data)}")
         except Exception as e:
-            print(f"[{now_ts()}] [SEND][ERROR] {e}\n{traceback.format_exc()}")
+            print(f"[{now_ts()}] [SEND][ERROR] {e}")
 
         if time.time() - last_flush >= 1.0:
             try: f.flush()
@@ -188,6 +182,4 @@ def main():
     print(f"[{now_ts()}] test1 stopped.")
 
 if __name__ == "__main__":
-    # python -u 추천 (버퍼링 방지)
     main()
-

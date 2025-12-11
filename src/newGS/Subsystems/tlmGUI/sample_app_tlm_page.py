@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-sample_app_tlm_page.py (통일 스키마 대응판, 구분자 자동 감지, 호환성 개선)
+sample_app_tlm_page.py (Hybrid Matching Version)
 
-- 읽는 CSV: newGS/log/sample_app_sent.csv, sample_app_recv.csv
-- 공통 스키마(헤더):
-  ts,direction,id,text,mid_hex,apid_hex,cc_dec,len,src_ip,src_port,head_hex16,text_hex,bits
-- 매칭 조건:
-  Sent: direction="sent" AND mid_hex==0x1882 AND cc_dec==3
-  Recv: direction="recv" AND mid_hex==0x08A9
-- BER 계산: 길이 다르면 짧은 쪽 기준(Partial)
+기능:
+  1. 1차 매칭: 텍스트 ID (id 컬럼) 일치 여부
+  2. 2차 매칭: ID가 깨진 경우, 전송 시간(ts) 기준 2초 내 응답 패킷 매칭
+  3. BER 계산: 비트 단위 비교
+  4. 상태 판정: OK / CORRUPTED / LOST
 """
 
 import sys
 import csv
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
@@ -24,264 +22,246 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QLabel, QMessageBox, QHBoxLayout, QWidget
 )
 
-# 프로젝트 루트(newGS) 기준 경로
-PROJECT_ROOT = Path(__file__).resolve().parents[2]   # .../newGS
+# 파일 경로 설정
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parents[1]  # newGS 폴더
 LOG_DIR = PROJECT_ROOT / "log"
 SENT_CSV = LOG_DIR / "sample_app_sent.csv"
 RECV_CSV = LOG_DIR / "sample_app_recv.csv"
 
-DARK_ORANGE_COLOR = QColor(255, 140, 0)
-DISPLAY_TS_FMT = "%Y-%m-%d %H:%M:%S"
+# 색상 정의
+COLOR_LOST = QColor(255, 80, 80)       # 빨강 (분실)
+COLOR_OK = QColor(50, 205, 50)         # 녹색 (정상)
+COLOR_CORRUPT = QColor(255, 140, 0)    # 주황 (내용 깨짐)
+COLOR_GRAY = Qt.darkGray
+
+DISPLAY_TS_FMT = "%H:%M:%S"
 
 def _read_csv_rows(csv_path: Path):
-    """콤마/탭/세미콜론 구분자 자동 감지 후 DictReader로 읽기."""
     rows = []
-    if not csv_path.exists():
-        print(f"[WARN] CSV not found: {csv_path}")
-        return rows
+    if not csv_path.exists(): return rows
     try:
         with open(csv_path, "r", encoding="utf-8", newline="") as f:
-            sample = f.read(2048)
-            f.seek(0)
-            try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
-            except Exception:
-                dialect = csv.excel  # 기본 콤마
+            sample = f.read(2048); f.seek(0)
+            try: dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+            except: dialect = csv.excel
             reader = csv.DictReader(f, dialect=dialect)
-            for row in reader:
-                rows.append(row)
+            for row in reader: rows.append(row)
     except Exception as e:
-        print(f"[ERROR] read csv {csv_path}: {e}")
+        print(f"[ERROR] CSV Read Failed {csv_path}: {e}")
     return rows
 
 class SampleAppTelemetryDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Sample App Telemetry Metrics")
-        self.setMinimumSize(1150, 600)
+        self.setWindowTitle("Sample App Telemetry (Hybrid Matching)")
+        self.setMinimumSize(1200, 650)
 
-        main_layout = QVBoxLayout(self)
-        lbl = QLabel(
-            "Sample App 전송·수신 매칭 결과 (ID 기준)\n"
-            "- 통일 스키마 CSV(log/)를 읽어 BER 및 상태를 계산합니다.\n"
-            "- 송수신 비트열 길이가 다르면 짧은 쪽 기준(Partial)으로 BER 계산."
+        layout = QVBoxLayout(self)
+
+        info_lbl = QLabel(
+            "<b>[하이브리드 매칭 및 정량 평가]</b><br>"
+            "- <b>1단계(ID):</b> 메시지 ID가 일치하면 매칭<br>"
+            "- <b>2단계(시간):</b> ID가 깨졌을 경우(재밍 등), 전송 후 2초 내 도착한 패킷과 매칭<br>"
+            "- <b>BER:</b> 송신 데이터와 수신 데이터의 비트 차이를 백분율로 표시"
         )
-        main_layout.addWidget(lbl)
+        layout.addWidget(info_lbl)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
-        self.table.setHorizontalHeaderLabels([
-            "ID", "Sent Timestamp", "Sent Message",
-            "Recv Timestamp", "Recv Message", "RTT (ms)",
-            "Status", "BER (%)", "Attack Type"
-        ])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        for col_idx in [1, 2, 3, 4, 8]:
-            self.table.horizontalHeader().setSectionResizeMode(col_idx, QHeaderView.Interactive)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        cols = ["Sent ID", "Sent Time", "Sent Msg", "Recv Time", "Recv Msg", "RTT(ms)", "Status", "BER(%)"]
+        self.table.setColumnCount(len(cols))
+        self.table.setHorizontalHeaderLabels(cols)
+        
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
         self.table.setAlternatingRowColors(True)
-        main_layout.addWidget(self.table, stretch=1)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        layout.addWidget(self.table)
 
-        btn_widget = QWidget()
-        btn_layout = QHBoxLayout(btn_widget)
-        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_box = QHBoxLayout()
         self.btn_refresh = QPushButton("새로고침")
         self.btn_refresh.clicked.connect(self.refresh_data)
-        self.btn_reset = QPushButton("기록 초기화")
+        self.btn_reset = QPushButton("로그 초기화")
         self.btn_reset.clicked.connect(self.reset_all_data)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.btn_refresh)
-        btn_layout.addWidget(self.btn_reset)
-        main_layout.addWidget(btn_widget)
+        self.btn_reset.setStyleSheet("background-color: #ffdddd;")
+        btn_box.addStretch()
+        btn_box.addWidget(self.btn_refresh)
+        btn_box.addWidget(self.btn_reset)
+        layout.addLayout(btn_box)
 
-        # 경로 디버그
-        print(f"[INFO] SENT_CSV={SENT_CSV.resolve()}")
-        print(f"[INFO] RECV_CSV={RECV_CSV.resolve()}")
-
-        self.refresh_data()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh_data)
-        self.timer.start(5000)
+        self.timer.start(2000)
+
+        self.refresh_data()
 
     def _parse_ts(self, s: str):
-        if not s:
-            return None
-        try:
-            return datetime.strptime(s, DISPLAY_TS_FMT)
-        except Exception:
-            return None
+        if not s: return None
+        try: return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+        except: return None
 
     def refresh_data(self):
-        print("[INFO] Refreshing telemetry data...")
-
         sent_rows = _read_csv_rows(SENT_CSV)
         recv_rows = _read_csv_rows(RECV_CSV)
-        print(f"[DEBUG] loaded rows: sent={len(sent_rows)}, recv={len(recv_rows)}")
 
-        sent = {}  # id -> dict(ts, text, bits)
-        recv = {}
-
-        # Sent 필터: direction="sent", mid=0x1882, cc=3
+        # 1. 데이터 전처리 (리스트 변환)
+        sent_list = []
         for row in sent_rows:
-            try:
-                if row.get("direction") != "sent":
-                    continue
-                if (row.get("mid_hex", "").lower() != "0x1882"):
-                    continue
-                cc_s = str(row.get("cc_dec", "")).strip()
-                if cc_s != "3":
-                    continue
-                sid = (row.get("id", "") or "").strip()
-                if not sid:
-                    continue
-                bits_raw = (row.get("bits", "") or "")
-                # Python 3.8 호환: removeprefix 대신 replace 1회
-                if bits_raw.startswith("b:"):
-                    bits_clean = bits_raw.replace("b:", "", 1)
-                else:
-                    bits_clean = bits_raw
-                sent[sid] = {
-                    "ts": self._parse_ts(row.get("ts", "")),
-                    "text": row.get("text", ""),
-                    "bits": bits_clean
-                }
-            except Exception:
-                continue
+            if row.get("direction") != "sent": continue
+            if "1882" not in row.get("mid_hex", "").lower(): continue # Command Filter
+            ts = self._parse_ts(row.get("ts"))
+            if not ts: continue
+            
+            bits = row.get("bits", "")
+            if bits.startswith("b:"): bits = bits[2:]
+            
+            sent_list.append({
+                "row": row, "ts": ts, "id": row.get("id", ""), "bits": bits, "matched": False
+            })
 
-        # Recv 필터: direction="recv", mid=0x08A9
+        recv_list = []
         for row in recv_rows:
-            try:
-                if row.get("direction") != "recv":
-                    continue
-                if (row.get("mid_hex", "").lower() != "0x08a9"):
-                    continue
-                sid = (row.get("id", "") or "").strip()
-                if not sid:
-                    continue
-                bits_raw = (row.get("bits", "") or "")
-                if bits_raw.startswith("b:"):
-                    bits_clean = bits_raw.replace("b:", "", 1)
-                else:
-                    bits_clean = bits_raw
-                recv[sid] = {
-                    "ts": self._parse_ts(row.get("ts", "")),
-                    "text": row.get("text", ""),
-                    "bits": bits_clean
-                }
-            except Exception:
-                continue
+            if row.get("direction") != "recv": continue
+            mid = (row.get("mid_hex") or row.get("sid_hex") or "").lower()
+            if "08a9" not in mid: continue # Telemetry Filter
+            ts = self._parse_ts(row.get("ts"))
+            if not ts: continue
+            
+            bits = row.get("bits", "")
+            if bits.startswith("b:"): bits = bits[2:]
 
-        # 매칭 및 표시
-        def _sort_key(k: str):
-            try:
-                return int(k)
-            except Exception:
-                return 1 << 60
+            recv_list.append({
+                "row": row, "ts": ts, "id": row.get("id", ""), "bits": bits, "matched": False
+            })
 
-        ids = sorted(set(sent.keys()) | set(recv.keys()), key=_sort_key)
-        self.table.setRowCount(0)
-        self.table.setRowCount(len(ids))
+        # 2. 매칭 로직 (Hybrid)
+        results = [] # 최종 출력용 리스트
 
-        for row_idx, sid in enumerate(ids):
-            s = sent.get(sid)
-            r = recv.get(sid)
+        # Step A: ID 기반 매칭 (신뢰도 높음)
+        for s in sent_list:
+            if s["matched"]: continue
+            if not s["id"]: continue # ID가 없으면 패스
 
-            # ID
-            self.table.setItem(row_idx, 0, QTableWidgetItem(str(sid)))
-
-            # Sent TS/Text
-            s_ts = s["ts"].strftime(DISPLAY_TS_FMT) if s and s.get("ts") else "-"
-            s_text = s.get("text", "") if s else "-"
-            self.table.setItem(row_idx, 1, QTableWidgetItem(s_ts))
-            self.table.setItem(row_idx, 2, QTableWidgetItem(s_text))
-
-            # Recv TS/Text
-            r_ts = r["ts"].strftime(DISPLAY_TS_FMT) if r and r.get("ts") else "-"
-            r_text = r.get("text", "") if r else "-"
-            self.table.setItem(row_idx, 3, QTableWidgetItem(r_ts))
-            self.table.setItem(row_idx, 4, QTableWidgetItem(r_text))
-
-            # RTT
-            item_rtt = QTableWidgetItem("-")
-            if s and r and s.get("ts") and r.get("ts"):
-                try:
-                    delta_ms = int((r["ts"] - s["ts"]).total_seconds() * 1000)
-                    item_rtt.setText(str(delta_ms))
-                except Exception:
-                    item_rtt.setText("Calc Error")
-            self.table.setItem(row_idx, 5, item_rtt)
-
-            # BER & Status
-            ber_display = "-"
-            status = "UNKNOWN"
-            status_color = Qt.black
-
-            if not r:
-                status = "LOST"
-                status_color = Qt.blue
+            for r in recv_list:
+                if r["matched"]: continue
+                # ID가 일치하고, 시간이 같거나 늦은 경우
+                if r["id"] == s["id"] and r["ts"] >= s["ts"]:
+                    s["matched"] = True
+                    r["matched"] = True
+                    results.append((s, r))
+                    break
+        
+        # Step B: 시간 기반 매칭 (ID가 깨진 경우, RTT 윈도우 2초)
+        for s in sent_list:
+            if s["matched"]: continue
+            
+            best_r = None
+            min_diff = 999999
+            
+            for r in recv_list:
+                if r["matched"]: continue
+                
+                # 송신 시간 이후, 2초 이내 도착
+                diff = (r["ts"] - s["ts"]).total_seconds()
+                if 0 <= diff <= 2.0:
+                    if diff < min_diff:
+                        min_diff = diff
+                        best_r = r
+            
+            if best_r:
+                s["matched"] = True
+                best_r["matched"] = True
+                results.append((s, best_r))
             else:
-                sbits = s.get("bits", "") if s else ""
-                rbits = r.get("bits", "") if r else ""
-                if sbits and rbits:
-                    n = min(len(sbits), len(rbits))
-                    partial = (len(sbits) != len(rbits))
-                    if n > 0:
-                        errors = sum(1 for i in range(n) if sbits[i] != rbits[i])
-                        ber = errors / n
-                        ber_display = f"{ber*100:.2f}" + (" (Partial)" if partial else "")
-                        if ber == 0.0:
-                            status = "OK"
-                            status_color = Qt.darkGreen
-                        else:
-                            status = "CORRUPTED (BER)"
-                            status_color = DARK_ORANGE_COLOR
-                    else:
-                        status = "RECEIVED (No Bits)"
-                        status_color = Qt.darkGray
+                # 매칭 실패 -> Lost
+                results.append((s, None))
+
+        # (옵션) 매칭되지 않은 수신 패킷 (Recv Only) 처리
+        # for r in recv_list:
+        #     if not r["matched"]: results.append((None, r))
+
+        # 3. 정렬 (Sent Time 기준)
+        results.sort(key=lambda x: x[0]["ts"] if x[0] else x[1]["ts"])
+
+        # 4. 테이블 출력
+        self.table.setRowCount(len(results))
+        for idx, (s, r) in enumerate(results):
+            # Sent Info
+            if s:
+                self.table.setItem(idx, 0, QTableWidgetItem(s["id"]))
+                self.table.setItem(idx, 1, QTableWidgetItem(s["ts"].strftime(DISPLAY_TS_FMT)))
+                self.table.setItem(idx, 2, QTableWidgetItem(s["row"].get("text", "")))
+            else:
+                self.table.setItem(idx, 0, QTableWidgetItem("-")) # Recv Only
+
+            # Recv Info
+            if r:
+                self.table.setItem(idx, 3, QTableWidgetItem(r["ts"].strftime(DISPLAY_TS_FMT)))
+                self.table.setItem(idx, 4, QTableWidgetItem(r["row"].get("text", "")))
+            else:
+                self.table.setItem(idx, 3, QTableWidgetItem("-"))
+                self.table.setItem(idx, 4, QTableWidgetItem("-"))
+
+            # RTT & Status
+            status, color, ber_str, rtt_str = "-", Qt.black, "-", "-"
+
+            if s and r:
+                rtt_str = f"{(r['ts'] - s['ts']).total_seconds()*1000:.0f}"
+                
+                # BER Calc
+                sb, rb = s["bits"], r["bits"]
+                min_len = min(len(sb), len(rb))
+                # 비트 차이 계산
+                err_bits = sum(1 for i in range(min_len) if sb[i] != rb[i])
+                # 길이 차이도 에러로 포함
+                err_bits += abs(len(sb) - len(rb))
+                total_len = max(len(sb), len(rb))
+                
+                if err_bits == 0:
+                    status = "OK"
+                    color = COLOR_OK
+                    ber_str = "0.00 %"
                 else:
-                    status = "RECEIVED (Partial Data for BER)"
-                    status_color = Qt.darkGray
+                    status = "CORRUPTED" # 매칭은 됐지만 내용 다름
+                    color = COLOR_CORRUPT
+                    ber = (err_bits / total_len) * 100 if total_len > 0 else 0
+                    ber_str = f"{ber:.2f} %"
+            
+            elif s and not r:
+                status = "LOST"
+                color = COLOR_LOST
+            elif not s and r:
+                status = "RECV ONLY"
+                color = COLOR_GRAY
 
-            self.table.setItem(row_idx, 7, QTableWidgetItem(ber_display))
-            item_status = QTableWidgetItem(status)
-            item_status.setForeground(status_color)
-            self.table.setItem(row_idx, 6, item_status)
-
-            # Attack Type: 현재 통일 스키마에 없음 → "-"
-            self.table.setItem(row_idx, 8, QTableWidgetItem("-"))
-
-        self.table.resizeRowsToContents()
-        self.table.scrollToBottom()
+            self.table.setItem(idx, 5, QTableWidgetItem(rtt_str))
+            
+            st_item = QTableWidgetItem(status)
+            st_item.setForeground(color); st_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(idx, 6, st_item)
+            
+            ber_item = QTableWidgetItem(ber_str)
+            ber_item.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(idx, 7, ber_item)
 
     def reset_all_data(self):
-        reply = QMessageBox.question(
-            self,
-            "초기화 확인",
-            f"송신·수신 기록을 모두 삭제하시겠습니까?\n\n"
-            f"송신: {SENT_CSV}\n수신: {RECV_CSV}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        header = [
-            "ts","direction","id","text","mid_hex","apid_hex","cc_dec","len",
-            "src_ip","src_port","head_hex16","text_hex","bits"
-        ]
+        reply = QMessageBox.question(self, "초기화", "로그를 초기화하시겠습니까?", QMessageBox.Yes | QMessageBox.No)
+        if reply != QMessageBox.Yes: return
         try:
-            for p in (SENT_CSV, RECV_CSV):
-                p.parent.mkdir(parents=True, exist_ok=True)
+            # Seq 포함된 헤더로 초기화
+            header = ["ts","direction","id","text","mid_hex","apid_hex","cc_dec",
+                      "seq","len","src_ip","src_port","head_hex16","text_hex","bits"]
+            for p in [SENT_CSV, RECV_CSV]:
                 with open(p, "w", newline="", encoding="utf-8") as f:
                     csv.writer(f).writerow(header)
             self.refresh_data()
-            QMessageBox.information(self, "초기화 완료", "송수신 기록이 초기화되었습니다.")
         except Exception as e:
-            QMessageBox.critical(self, "초기화 오류", f"파일 초기화 중 오류 발생:\n{e}")
+            QMessageBox.critical(self, "Error", str(e))
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     dlg = SampleAppTelemetryDialog()
     dlg.show()
     sys.exit(app.exec_())
-

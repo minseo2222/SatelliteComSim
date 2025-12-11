@@ -1,22 +1,22 @@
-[2025-12-02 04:44:00] test1 starting…
-[2025-12-02 04:44:00] __file__=/home/vboxuser/SatelliteComSim/src/newGS/test1.py
-[2025-12-02 04:44:00] CSV_PATH=/home/vboxuser/SatelliteComSim/src/newGS/log/sample_app_sent.csv
-[2025-12-02 04:44:00] listening on 0.0.0.0:50000
-[2025-12-02 04:44:00] forwarding to 127.0.0.1:8600
-[2025-12-02 04:44:00] [INIT] running (async): /usr/bin/env bash /home/vboxuser/SatelliteComSim/src/newGS/scripts/setup_tolab_08a9.sh
-[RECV] 127.0.0.1:43463 len=8 mid=0x1880 apid=0x0080 cc=0 head=18 80 C0 00 00 01 00 A6
-[DEBUG] mid/apid check => mid=0x1880, apid=0x0080, cc=0
-[FWD ] -> 127.0.0.1:8600 len=8
-[RECV] 127.0.0.1:50792 len=8 mid=0x1880 apid=0x0080 cc=6 head=18 80 C0 00 00 01 06 A0
-[DEBUG] mid/apid check => mid=0x1880, apid=0x0080, cc=6
-[FWD ] -> 127.0.0.1:8600 len=8
-[RECV] 127.0.0.1:46448 len=16 mid=0x1880 apid=0x0080 cc=2 head=18 80 C0 00 00 09 02 09 A9 08 00 00 00 00 04 00
-[DEBUG] mid/apid check => mid=0x1880, apid=0x0080, cc=2
-[FWD ] -> 127.0.0.1:8600 len=16
-[2025-12-02 04:44:00] [INIT] rc=0
+[2025-12-11 18:10:35] test1 starting…
+[2025-12-11 18:10:35] listening on 0.0.0.0:50000
+[2025-12-11 18:10:35] forwarding to 127.0.0.1:8600
+[2025-12-11 18:10:35] [INIT] running (async): /usr/bin/env bash /home/vboxuser/SatelliteComSim/src/newGS/scripts/setup_tolab_08a9.sh
+[RECV] 127.0.0.1:47400 len=8 mid=0x1880 seq=0 cc=0
+[RECV] 127.0.0.1:47261 len=8 mid=0x1880 seq=0 cc=6
+[RECV] 127.0.0.1:45645 len=16 mid=0x1880 seq=0 cc=2
+[2025-12-11 18:10:35] [INIT] rc=0
 [INIT][STDOUT]
 [OK] TO_LAB enabled + 0x08A9 registered (limit=4) on 127.0.0.1:50000
-[RECV] 127.0.0.1:37487 len=136 mid=0x1882 apid=0x0082 cc=3 head=18 82 C0 00 00 81 03 6C 31 34 3A 71 77 65 61 73
-[DEBUG] mid/apid check => mid=0x1882, apid=0x0082, cc=3
-[TEXT] 14:qweasdzxc
-[FWD ] -> 127.0.0.1:8600 len=136
+[RECV] 127.0.0.1:48149 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:53593 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:40464 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:39140 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:35922 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:38072 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:47385 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:40637 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:47595 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:40168 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:45930 len=136 mid=0x1882 seq=0 cc=3
+[RECV] 127.0.0.1:59460 len=136 mid=0x1882 seq=0 cc=3

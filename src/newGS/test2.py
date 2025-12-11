@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-test2.py — Uplink GNURadio PDU UDP relay with LEO Satellite Channel Physics
+test2.py — Space Channel & Advanced Attack Simulator (With Replay)
+
+Attacks Implemented:
+  1. Drop: Probabilistic / Burst Drop
+  2. Jamming: Probabilistic / Header Protect / Ratio
+  3. Replay: Probabilistic / Replay Delay (sends copy after N seconds)
+  
+  * Replaces Length Mod with Replay Attack.
 """
 
 import os
@@ -12,55 +19,69 @@ import heapq
 import threading
 import argparse
 import socket
-import math
-from datetime import datetime, timedelta
+import csv
+from datetime import datetime
 from struct import unpack
-from typing import Tuple, Optional  # <--- ★ [수정됨] 이 부분이 추가되었습니다.
 
 from gnuradio import gr, blocks
 import pmt
 
-# --- gr-leo 라이브러리 임포트 시도 ---
-try:
-    from gnuradio import leo
-    LEO_AVAILABLE = True
-except ImportError:
-    try:
-        import leo
-        LEO_AVAILABLE = True
-    except ImportError:
-        LEO_AVAILABLE = False
-        print("[WARNING] 'leo' module not found. Physics simulation with gr-leo will be disabled.")
 
-# ---------------------- 기본 설정 ----------------------
-DEFAULT_TLE_1 = "1 25544U 98067A   18268.52547184  .00016717  00000-0  10270-3 0  9019"
-DEFAULT_TLE_2 = "2 25544  51.6373 238.6885 0003885 206.9748 153.1203 15.53729445 14114"
-SPEED_OF_LIGHT = 299792458.0
+def load_config_json():
+    candidates = []
+    env_p = os.environ.get("TEST2_CONFIG")
+    if env_p: candidates.append(env_p)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(script_dir, "test2_config.json"))
 
-# ---------------------- 패킷 처리 유틸 ----------------------
-def now_ts(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-def extract_mid(pkt: bytes) -> int: return unpack(">H", pkt[0:2])[0] if len(pkt) >= 2 else -1
+    for p in candidates:
+        try:
+            if p and os.path.isfile(p):
+                with open(p, "r", encoding="utf-8") as f: return json.load(f)
+        except: pass
+    return None
 
+def apply_config_overrides(args, cfg: dict):
+    if not cfg: return args
+    def setv(k, dst):
+        if k in cfg: setattr(args, dst, cfg[k])
+    setv("listen_ip", "listen_ip"); setv("listen_port", "listen_port")
+    setv("dst_ip", "dst_ip"); setv("dst_port", "dst_port"); setv("mtu", "mtu")
+    setv("base_delay_ms", "base_delay_ms"); setv("jitter_ms", "jitter_ms")
+    setv("ber", "ber"); setv("seed", "seed")
+    if "mode" in cfg:
+        m = str(cfg["mode"]).lower().strip()
+        args.full_ber = (m == "full")
+        args.payload_only = not args.full_ber
+    setv("tlm08a9_len_off", "tlm08a9_len_off")
+    setv("tlm08a9_text_off", "tlm08a9_text_off")
+    setv("tlm08a9_text_max", "tlm08a9_text_max")
+    setv("ctrl_bind_ip", "ctrl_bind_ip"); setv("ctrl_port", "ctrl_port")
+    return args
+
+def now_ts(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+def be16(b: bytes): return unpack(">H", b)[0]
+def extract_mid(pkt: bytes): return be16(pkt[0:2]) if len(pkt) >= 2 else -1
+def extract_seq_count(pkt: bytes):
+    if len(pkt) >= 4: return ((pkt[2] & 0x3F) << 8) | pkt[3]
+    return -1
 def text_region_for_tlm_08a9(pkt: bytes, len_off=12, text_off=14, text_max=128):
     if len(pkt) < text_off: return None
-    try:
-        text_len = unpack(">H", pkt[len_off:len_off+2])[0]
+    try: text_len = be16(pkt[len_off:len_off+2])
     except: return None
     text_len = max(0, min(int(text_len), int(text_max)))
-    start = int(text_off); end = min(len(pkt), start + text_len)
-    return (start, end) if end > start else None
+    return (int(text_off), min(len(pkt), int(text_off) + text_len))
 
-def flip_bits_inplace(buf: bytearray, ber: float, rng: random.Random, start: int = 0, end: Optional[int] = None):
+def flip_bits_inplace(buf: bytearray, ber: float, rng: random.Random, start=0, end=None):
     if ber <= 0.0: return
     L = len(buf); s = max(0, start); e = L if end is None else max(0, min(L, end))
     if s >= e: return
     for i in range(s, e):
         b = buf[i]
-        for bit in range(8):
-            if rng.random() < ber: b ^= (1 << bit)
+        for _ in range(8):
+            if rng.random() < ber: b ^= (1 << _)
         buf[i] = b
 
-# ---------------------- 로거 블록 ----------------------
 class PduLogger(gr.basic_block):
     def __init__(self, label="IN"):
         gr.basic_block.__init__(self, name=f"PduLogger({label})", in_sig=None, out_sig=None)
@@ -68,301 +89,224 @@ class PduLogger(gr.basic_block):
         self.message_port_register_in(pmt.intern("pdus"))
         self.set_msg_handler(pmt.intern("pdus"), self._handler)
         self.message_port_register_out(pmt.intern("pdus"))
-
     def _handler(self, msg):
-        try:
-            vec = pmt.cdr(msg)
-            data = bytes(bytearray(pmt.u8vector_elements(vec)))
-            print(f"[{self.label}] {now_ts()} len={len(data)} MID=0x{extract_mid(data):04X}")
-        except: pass
         self.message_port_pub(pmt.intern("pdus"), msg)
 
-# ---------------------- 우주환경 블록 (물리 엔진) ----------------------
 class PduSpaceChannel(gr.basic_block):
-    def __init__(self, cfg):
+    HEADER_PROTECT_SIZE = 8
+
+    def __init__(self, base_delay_ms=0.0, jitter_ms=0.0, ber=0.0, seed=0xBEEF,
+                 payload_only=True, tlm08a9_len_off=12, tlm08a9_text_off=14, tlm08a9_text_max=128):
         gr.basic_block.__init__(self, name="PduSpaceChannel", in_sig=None, out_sig=None)
         
-        # 설정 로드
-        self.base_delay_ms = float(cfg.get("base_delay_ms", 0.0))
-        self.jitter_ms = float(cfg.get("jitter_ms", 0.0))
-        self.ber = float(cfg.get("ber", 0.0))
-        self.rng = random.Random(int(cfg.get("seed", 0xBEEF)))
-        self.payload_only = bool(cfg.get("payload_only", True))
+        self.base_delay_ms = float(base_delay_ms)
+        self.jitter_ms = float(jitter_ms)
+        self.ber = float(ber)
+        self.rng = random.Random(int(seed))
+        self.payload_only = bool(payload_only)
+        self.len_off = int(tlm08a9_len_off)
+        self.text_off = int(tlm08a9_text_off)
+        self.text_max = int(tlm08a9_text_max)
         
-        # 통신/물리 파라미터 (초기값)
-        self.use_leo = cfg.get("use_leo", False) and LEO_AVAILABLE
-        self.sat_name = cfg.get("sat_name", "ISS")
-        
-        # [위성 파라미터]
-        self.sat_tx_power_dbm = 30.0  # 기본 30dBm (1W)
-        self.sat_ant_gain_dbi = 0.0   # 등방성
-        self.uplink_freq = 437e6      # 437 MHz
+        # Attack Params
+        self.attack_mode = "none"
+        self.attack_prob = 100.0
+        self.burst_size = 1
+        self.burst_remaining = 0
+        self.jamming_protect = 8
+        self.jamming_ratio = 100.0
+        self.replay_delay = 1.0  # [New]
 
-        # [지상국 파라미터]
-        self.gs_lat = 36.350413
-        self.gs_lon = 127.384548
-        self.gs_alt = 50.0
-        self.gs_ant_gain_dbi = 0.0
-        self.gs_min_elev = 5.0        # 최소 앙각 5도
+        self.log_path = "attack_log.csv"
+        try:
+            with open(self.log_path, "w", newline="") as f:
+                csv.writer(f).writerow(["Timestamp", "SeqCount", "AttackMode", "Result", "Details"])
+            print(f"[TEST2] Log initialized: {self.log_path}")
+        except: pass
 
-        # gr-leo 객체
-        self.tracker = None
-        self.satellite = None
-        
-        if self.use_leo: self._init_leo_physics()
-
-        # 스레드 설정
         self._lock = threading.Lock()
         self.message_port_register_in(pmt.intern("pdus"))
         self.set_msg_handler(pmt.intern("pdus"), self._handler)
         self.message_port_register_out(pmt.intern("pdus"))
+
         self._send_heap = []
         self._stop = False
         self._tx_thread = threading.Thread(target=self._tx_worker, daemon=True)
         self._tx_thread.start()
 
-    def _init_leo_physics(self):
-        print(f"[PduSpaceChannel] Init Physics for {self.sat_name} (Freq:{self.uplink_freq/1e6}MHz, Pwr:{self.sat_tx_power_dbm}dBm)...")
-        try:
-            # 안테나 패턴 생성 (기본 Dipole 사용, 이득은 수식에서 별도 계산)
-            if hasattr(leo, 'antenna'):
-                ant = leo.antenna.dipole_antenna.make(0, self.uplink_freq, 0, 0)
-            else:
-                ant = leo.dipole_antenna.make(0, self.uplink_freq, 0, 0)
-
-            # 위성 생성
-            self.satellite = leo.satellite.make(
-                self.sat_name, DEFAULT_TLE_1, DEFAULT_TLE_2,
-                self.uplink_freq, 145e6, self.sat_tx_power_dbm, ant, ant, 12, 190, 1200
-            )
-
-            # 트래커 생성
-            start_t = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
-            end_t = (datetime.utcnow() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S.0000000Z")
-            
-            if hasattr(leo, 'tracker'):
-                self.tracker = leo.tracker.make(
-                    self.satellite, self.gs_lat, self.gs_lon, self.gs_alt,
-                    start_t, end_t, 1000, self.uplink_freq, 145e6, 300.0, ant, ant, 1, 210, 19200
-                )
-            else:
-                 self.tracker = leo.tracker_make(
-                    self.satellite, self.gs_lat, self.gs_lon, self.gs_alt,
-                    start_t, end_t, 1000, self.uplink_freq, 145e6, 300.0, ant, ant, 1, 210, 19200
-                )
-            print("[PduSpaceChannel] Physics initialized.")
-        except Exception as e:
-            print(f"[PduSpaceChannel] ERROR: {e}")
-            self.use_leo = False
-
     def set_params(self, **kw):
         with self._lock:
-            # 기본 통신 설정
             if "base_delay_ms" in kw: self.base_delay_ms = float(kw["base_delay_ms"])
             if "jitter_ms" in kw: self.jitter_ms = float(kw["jitter_ms"])
             if "ber" in kw: self.ber = float(kw["ber"])
             
-            need_reinit = False
-            # 지상국 설정 반영
-            if "gs_lat" in kw: self.gs_lat = float(kw["gs_lat"]); need_reinit = True
-            if "gs_lon" in kw: self.gs_lon = float(kw["gs_lon"]); need_reinit = True
-            if "gs_alt" in kw: self.gs_alt = float(kw["gs_alt"]); need_reinit = True
-            if "min_elevation" in kw: self.gs_min_elev = float(kw["min_elevation"])
-            if "gs_antenna_gain" in kw: self.gs_ant_gain_dbi = float(kw["gs_antenna_gain"])
+            if "attack_mode" in kw: 
+                self.attack_mode = str(kw["attack_mode"]).lower()
+                print(f"[TEST2] Mode: {self.attack_mode}")
+            if "attack_prob" in kw: self.attack_prob = float(kw["attack_prob"])
+            
+            if "burst_size" in kw: self.burst_size = int(kw["burst_size"])
+            if "jamming_protect" in kw: self.jamming_protect = int(kw["jamming_protect"])
+            if "jamming_ratio" in kw: self.jamming_ratio = float(kw["jamming_ratio"])
+            if "replay_delay" in kw: self.replay_delay = float(kw["replay_delay"])
 
-            # 위성 설정 반영
-            if "sat_name" in kw: self.sat_name = str(kw["sat_name"]); need_reinit = True
-            if "frequency" in kw: self.uplink_freq = float(kw["frequency"]); need_reinit = True
-            if "transmit_power" in kw: self.sat_tx_power_dbm = float(kw["transmit_power"])
-            if "antenna_gain" in kw: self.sat_ant_gain_dbi = float(kw["antenna_gain"])
-
-            if "use_leo" in kw and LEO_AVAILABLE:
-                new_use = bool(kw["use_leo"])
-                if new_use and not self.use_leo: need_reinit = True
-                self.use_leo = new_use
-
-            if need_reinit and self.use_leo:
-                self._init_leo_physics()
-
-    def _calculate_physics(self) -> Tuple[float, float]:
-        """ 궤도 역학 및 링크 버젯 계산 """
-        if not self.tracker: return (0.0, 0.0)
+    def _write_log(self, seq, mode, result, details=""):
         try:
-            # 1. 거리 및 앙각 계산
-            dist_km = 400.0
-            elev_deg = 90.0
-            if hasattr(self.tracker, "get_range"): dist_km = self.tracker.get_range()
-            if hasattr(self.tracker, "get_elevation"): elev_deg = self.tracker.get_elevation()
+            with open(self.log_path, "a", newline="") as f:
+                csv.writer(f).writerow([now_ts(), seq, mode, result, details])
+        except: pass
 
-            dist_m = dist_km * 1000.0
-            delay_s = dist_m / SPEED_OF_LIGHT
-            if dist_m < 1.0: dist_m = 1.0
+    def _now_ns(self): return time.monotonic_ns()
+    def _schedule_send(self, meta, data, delay_s):
+        t = self._now_ns() + int(max(0, delay_s) * 1e9)
+        heapq.heappush(self._send_heap, (t, (meta, data)))
 
-            # [가시성 체크] 최소 앙각보다 낮으면 통신 두절 (BER=0.5)
-            if elev_deg < self.gs_min_elev:
-                return delay_s, 0.5 # Link Lost
-
-            # 2. 경로 손실 (Free Space Path Loss)
-            # FSPL(dB) = 20log10(d) + 20log10(f) - 147.55
-            path_loss_db = 20 * math.log10(dist_m) + 20 * math.log10(self.uplink_freq) - 147.55
-            
-            # 3. 도플러 효과 페널티
-            doppler_hz = 0.0
-            if hasattr(self.tracker, "get_range_rate"):
-                rr = self.tracker.get_range_rate()
-                doppler_hz = - (rr / SPEED_OF_LIGHT) * self.uplink_freq
-            
-            # 3kHz 이상 벗어나면 추가 손실 (예시 모델)
-            doppler_loss_db = 0.0
-            if abs(doppler_hz) > 3000.0:
-                doppler_loss_db = (abs(doppler_hz) - 3000.0) / 1000.0 * 1.0 # 1kHz당 1dB 감쇄
-
-            # 4. Link Budget (수신 전력 계산)
-            # Rx_Power = Tx_Power + Tx_Gain + Rx_Gain - Path_Loss - Doppler_Loss
-            rx_power_dbm = self.sat_tx_power_dbm + self.sat_ant_gain_dbi + self.gs_ant_gain_dbi \
-                           - path_loss_db - doppler_loss_db
-            
-            # SNR 계산 (Noise Floor는 -110dBm 가정)
-            noise_floor_dbm = -110.0
-            snr_db = rx_power_dbm - noise_floor_dbm
-            snr_linear = 10 ** (snr_db / 10.0)
-            
-            # BER 계산 (BPSK 근사)
-            if snr_linear <= 0: ber = 0.5
-            else:
-                ber = 0.5 * math.erfc(math.sqrt(snr_linear))
-                if ber < 1e-9: ber = 0.0
-
-            return delay_s, ber
-
-        except Exception:
-            return (0.001, 0.0)
+    def _tx_worker(self):
+        while not self._stop:
+            if not self._send_heap:
+                time.sleep(0.0005)
+                continue
+            t_ns, _ = self._send_heap[0]
+            curr = self._now_ns()
+            if t_ns > curr:
+                time.sleep(min((t_ns - curr)/1e9, 0.001))
+                continue
+            _, (meta, data) = heapq.heappop(self._send_heap)
+            m_pmt = pmt.to_pmt(meta) if meta else pmt.PMT_NIL
+            d_pmt = pmt.init_u8vector(len(data), list(data))
+            self.message_port_pub(pmt.intern("pdus"), pmt.cons(m_pmt, d_pmt))
 
     def _handler(self, msg):
-        # (기존 패킷 처리 로직과 동일)
         try:
             meta = pmt.to_python(pmt.car(msg))
             vec = pmt.cdr(msg)
             data = bytes(bytearray(pmt.u8vector_elements(vec)))
-        except: meta = {}; data = b""
-
-        if self.use_leo:
-            d_s, ber_val = self._calculate_physics()
-            cur_delay = d_s; cur_ber = ber_val
-        else:
-            cur_delay = self.base_delay_ms / 1000.0; cur_ber = self.ber
+        except: return
 
         modified = bytearray(data)
+        mode = self.attack_mode
+        seq = extract_seq_count(data)
+        
+        do_attack = False
+        if mode == "drop" and self.burst_remaining > 0: do_attack = True
+        elif mode != "none":
+            if self.rng.random() * 100.0 <= self.attack_prob: do_attack = True
+
+        if do_attack:
+            if mode == "drop":
+                if self.burst_remaining <= 0: self.burst_remaining = self.burst_size
+                self.burst_remaining -= 1
+                self._write_log(seq, "Drop", "Dropped", f"BurstRem={self.burst_remaining}")
+                return 
+
+            elif mode == "jamming":
+                prot = self.jamming_protect
+                if len(modified) > prot:
+                    payload_len = len(modified) - prot
+                    jam_count = int(payload_len * (self.jamming_ratio / 100.0))
+                    jam_count = max(0, min(jam_count, payload_len))
+                    for i in range(prot, prot + jam_count):
+                        modified[i] = self.rng.getrandbits(8)
+                self._write_log(seq, "Jamming", "Modified", f"Ratio={self.jamming_ratio}%")
+
+            elif mode == "replay":
+                # Replay: Original is sent at end, Schedule duplicate here
+                dup_delay = self.replay_delay
+                self._schedule_send(meta, bytes(modified), dup_delay) # Duplicate
+                self._write_log(seq, "Replay", "Scheduled", f"Delay={dup_delay}s")
+                # Original continues to be sent below
+        else:
+            if mode != "none": self._write_log(seq, mode, "Passed", "Prob check")
+
+        # BER Logic
+        cur_ber = self.ber
         if cur_ber > 0.0:
             if self.payload_only:
                 mid = extract_mid(modified)
                 if mid == 0x08A9:
-                    r = text_region_for_tlm_08a9(modified, self.len_off, self.text_off, self.text_max)
-                    if r: flip_bits_inplace(modified, cur_ber, self.rng, r[0], r[1])
+                    region = text_region_for_tlm_08a9(modified, self.len_off, self.text_off, self.text_max)
+                    if region:
+                        s, e = region
+                        flip_bits_inplace(modified, cur_ber, self.rng, s, e)
             else:
                 flip_bits_inplace(modified, cur_ber, self.rng)
 
-        base = cur_delay
+        # Normal Send (with jitter)
+        base = self.base_delay_ms / 1000.0
         jitter = self.jitter_ms / 1000.0
-        delay_s = max(0.0, self.rng.gauss(base, jitter/3.0)) if jitter > 0 else base
+        delay_s = max(0.0, self.rng.gauss(base, jitter/3.0)) if jitter > 0 else max(0.0, base)
         self._schedule_send(meta, bytes(modified), delay_s)
 
-    def _now_ns(self): return time.monotonic_ns()
-    def _sleep_until_ns(self, t_ns):
-        while True:
-            diff = t_ns - self._now_ns()
-            if diff <= 0: break
-            time.sleep(min(diff/1e9, 0.001))
-    def _schedule_send(self, meta, data, delay_s):
-        t = self._now_ns() + int(max(0.0, delay_s)*1e9)
-        heapq.heappush(self._send_heap, (t, (meta, data)))
-    def _tx_worker(self):
-        while not self._stop:
-            if not self._send_heap: time.sleep(0.0005); continue
-            t_ns, _ = self._send_heap[0]
-            self._sleep_until_ns(t_ns)
-            while self._send_heap and self._send_heap[0][0] <= self._now_ns():
-                _, (m, d) = heapq.heappop(self._send_heap)
-                out = pmt.cons(pmt.to_pmt(m), pmt.init_u8vector(len(d), list(d)))
-                self.message_port_pub(pmt.intern("pdus"), out)
     def stop(self):
         self._stop = True
-        try: self._tx_thread.join(1.0)
+        try: self._tx_thread.join(timeout=1.0)
         except: pass
-        return True
+        return super().stop()
 
-# ---------------------- 메인 ----------------------
+
 class UplinkUdpRelay(gr.top_block):
-    def __init__(self, **kwargs):
+    def __init__(self, args, cfg):
         super().__init__()
-        self.cfg = kwargs
-        self.udp_in = blocks.socket_pdu("UDP_SERVER", self.cfg.get("listen_ip"), str(self.cfg.get("listen_port")), int(self.cfg.get("mtu")), True)
+        self.listen_ip = cfg.get("listen_ip", args.listen_ip)
+        self.listen_port = int(cfg.get("listen_port", args.listen_port))
+        self.dst_ip = cfg.get("dst_ip", args.dst_ip)
+        self.dst_port = int(cfg.get("dst_port", args.dst_port))
+        
+        self.udp_in = blocks.socket_pdu("UDP_SERVER", self.listen_ip, str(self.listen_port), 1472, True)
         self.log_in = PduLogger("IN ")
-        self.space = PduSpaceChannel(self.cfg)
+        self.space = PduSpaceChannel(
+            cfg.get("base_delay_ms", 0), cfg.get("jitter_ms", 0), cfg.get("ber", 0), cfg.get("seed", 0xBEEF),
+            (not args.full_ber) and args.payload_only,
+            args.tlm08a9_len_off, args.tlm08a9_text_off, args.tlm08a9_text_max
+        )
         self.log_fwd = PduLogger("FWD")
-        self.udp_out = blocks.socket_pdu("UDP_CLIENT", self.cfg.get("dst_ip"), str(self.cfg.get("dst_port")), int(self.cfg.get("mtu")), True)
+        self.udp_out = blocks.socket_pdu("UDP_CLIENT", self.dst_ip, str(self.dst_port), 1472, True)
+        
         self.msg_connect(self.udp_in, "pdus", self.log_in, "pdus")
         self.msg_connect(self.log_in, "pdus", self.space, "pdus")
         self.msg_connect(self.space, "pdus", self.log_fwd, "pdus")
         self.msg_connect(self.log_fwd, "pdus", self.udp_out, "pdus")
-        self._start_ctrl_server()
+        
+        self._start_ctrl_server(cfg.get("ctrl_port", 9696))
 
-    def _start_ctrl_server(self):
-        self._stop_ctrl = False
-        self._ctrl_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._ctrl_sock.bind((self.cfg.get("ctrl_bind_ip","127.0.0.1"), int(self.cfg.get("ctrl_port",9696))))
+    def _start_ctrl_server(self, port):
         def worker():
-            while not self._stop_ctrl:
-                self._ctrl_sock.settimeout(0.5)
-                try: data, addr = self._ctrl_sock.recvfrom(65535)
-                except: continue
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.bind(("0.0.0.0", int(port)))
+            while True:
                 try:
+                    data, _ = s.recvfrom(65535)
                     msg = json.loads(data)
-                    if msg.get("cmd") == "set":
-                        self.space.set_params(**msg.get("params", {}))
-                        self._ctrl_sock.sendto(b'{"ok":true}', addr)
+                    if msg.get("cmd") == "set": self.space.set_params(**msg["params"])
                 except: pass
-        self._ctrl_thr = threading.Thread(target=worker, daemon=True)
-        self._ctrl_thr.start()
+        threading.Thread(target=worker, daemon=True).start()
+
     def stop(self):
         self._stop_ctrl = True
-        try: self._ctrl_sock.close()
-        except: pass
         return super().stop()
 
 def main():
-    # 설정 파일 로드
-    cfg = {}
-    cfg_path = os.environ.get("TEST2_CONFIG", os.path.join(os.path.dirname(os.path.abspath(__file__)), "test2_config.json"))
-    try:
-        with open(cfg_path, "r") as f: cfg = json.load(f)
-    except: pass
-    
-    # CLI 인자 파싱 (설정 파일보다 우선)
     ap = argparse.ArgumentParser()
-    ap.add_argument("--listen-ip", default="0.0.0.0"); ap.add_argument("--listen-port", type=int, default=8600)
-    ap.add_argument("--dst-ip", default="127.0.0.1"); ap.add_argument("--dst-port", type=int, default=1234)
-    ap.add_argument("--mtu", type=int, default=1472)
-    ap.add_argument("--use-leo", action="store_true"); ap.add_argument("--sat-name", default="ISS")
+    ap.add_argument("--listen-port", default=8600)
+    ap.add_argument("--dst-port", default=1234)
+    ap.add_argument("--dst-ip", default="127.0.0.1")
+    ap.add_argument("--listen-ip", default="0.0.0.0")
+    ap.add_argument("--payload-only", action="store_true")
+    ap.add_argument("--full-ber", action="store_true")
+    ap.add_argument("--tlm08a9-len-off", default=12)
+    ap.add_argument("--tlm08a9-text-off", default=14)
+    ap.add_argument("--tlm08a9-text-max", default=128)
     args = ap.parse_args()
     
-    # 병합
-    for k,v in vars(args).items():
-        if v: cfg[k] = v # CLI 값이 있으면 덮어씀
-    if "listen_ip" not in cfg: cfg["listen_ip"] = "0.0.0.0"
-    if "listen_port" not in cfg: cfg["listen_port"] = 8600
-    if "dst_ip" not in cfg: cfg["dst_ip"] = "127.0.0.1"
-    if "dst_port" not in cfg: cfg["dst_port"] = 1234
-    if "mtu" not in cfg: cfg["mtu"] = 1472
-
-    tb = UplinkUdpRelay(**cfg)
+    cfg = load_config_json() or {}
+    args = apply_config_overrides(args, cfg)
+    
+    tb = UplinkUdpRelay(args, cfg)
     tb.start()
-    print(f"[test2] Started. Physics: {'ON' if tb.space.use_leo else 'OFF'}")
     try:
         while True: time.sleep(1)
-    except KeyboardInterrupt: pass
+    except: pass
     tb.stop()
-    tb.wait()
 
 if __name__ == "__main__":
     main()
