@@ -27,42 +27,33 @@ def bytes_to_bits(b): return "".join(f"{x:08b}" for x in b)
 
 def parse_ccsds_header(pkt):
     if len(pkt) < 6: return None
-    (sid, seq, length) = struct.unpack(">HHH", pkt[:6])
+    (sid, seq_raw, length) = struct.unpack(">HHH", pkt[:6])
     apid = sid & 0x07FF
-    return {"sid": sid, "apid": apid, "seq": seq, "len": length, "total_len": length + 7}
+    # [수정] Sequence Count 14bit 추출 (상위 2비트 플래그 제외)
+    seq_count = seq_raw & 0x3FFF
+    return {"sid": sid, "apid": apid, "seq": seq_count, "len": length, "total_len": length + 7}
 
 def is_sample_text(hdr):
     sid = hdr["sid"]; apid = hdr["apid"]
     return (sid in FILTER_SID) or (apid in FILTER_APID)
 
 def extract_text(pkt: bytes) -> str:
-    """
-    SAMPLE_APP Text TLM을 두 포맷으로 시도:
-    A) [12:14]=TextLen, [14:]=Text(최대128)
-    B) [8: ] 문자열 (예: "ID:message")
-    """
-    # A 포맷
+    """SAMPLE_APP Text TLM (포맷 A/B 시도)"""
+    # A 포맷: [12:14]=Len, [14:]=Text
     if len(pkt) >= 14:
         try:
             text_len = (pkt[12] << 8) | pkt[13]
             text_raw = pkt[14:14+min(128, len(pkt)-14)]
             text = text_raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
-            # text_len 보정
-            if text_len > len(text):
-                text_len = len(text)
-            if text:
-                return text[:text_len] if text_len else text
-        except Exception:
-            pass
+            if text_len > len(text): text_len = len(text)
+            if text: return text[:text_len] if text_len else text
+        except Exception: pass
     # B 포맷
     if len(pkt) > 8:
         try:
             text = pkt[8:].replace(b"\x00", b"").decode("utf-8", errors="ignore")
-            # 너무 지저분하면 간단히 ':' 포함 여부로 거르기
-            if ":" in text:
-                return text.strip()
-        except Exception:
-            pass
+            if ":" in text: return text.strip()
+        except Exception: pass
     return ""
 
 def split_id_text(text: str):
@@ -74,9 +65,10 @@ def split_id_text(text: str):
     return sid, body
 
 def main():
+    # [수정] CSV 헤더에 'seq' 추가 (test1과 통일)
     ensure_csv_header(RECV_CSV, [
-        "ts","direction","id","text","sid_hex","apid_hex","cc_dec","len",
-        "src_ip","src_port","head_hex16","text_hex","bits"
+        "ts","direction","id","text","mid_hex","apid_hex","cc_dec",
+        "seq", "len", "src_ip","src_port","head_hex16","text_hex","bits"
     ])
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -90,23 +82,18 @@ def main():
         data, addr = sock.recvfrom(4096)
         src_ip, src_port = addr
         hdr = parse_ccsds_header(data)
-        if not hdr: 
-            continue
+        if not hdr: continue
 
-        # cc (function code 추정)
         cc = data[6] if len(data) > 6 else None
         head_hex16 = " ".join(f"{b:02X}" for b in data[:16])
 
-        # SAMPLE_APP 텍스트만 통과
-        if not is_sample_text(hdr):
-            continue
+        if not is_sample_text(hdr): continue
 
-        # 텍스트 추출
         text = extract_text(data)
         sid_str, text_body = split_id_text(text)
 
-        # 콘솔 출력
-        print(f"[test3] [TEXT] {now_ts()} sid=0x{hdr['sid']:04X} apid=0x{hdr['apid']:04X} cc={(cc if cc is not None else -1)} text={text!r}")
+        # 콘솔 출력 (Seq 포함)
+        print(f"[test3] [TEXT] {now_ts()} sid=0x{hdr['sid']:04X} seq={hdr['seq']} cc={(cc if cc is not None else -1)} text={text!r}")
 
         # CSV 기록
         text_bytes = text_body.encode("utf-8", errors="ignore")
@@ -118,10 +105,11 @@ def main():
             csv.writer(f).writerow([
                 now_ts(), "recv", sid_str, text_body,
                 f"0x{hdr['sid']:04X}", f"0x{hdr['apid']:04X}",
-                (cc if cc is not None else ""), len(data),
+                (cc if cc is not None else ""), 
+                hdr['seq'], # [수정] Seq 저장
+                len(data),
                 src_ip, src_port, head_hex16, text_hex, bits
             ])
 
 if __name__ == "__main__":
     main()
-
