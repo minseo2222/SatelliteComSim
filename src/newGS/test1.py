@@ -32,7 +32,8 @@ def ensure_csv_header(path: pathlib.Path):
         # [수정] 헤더에 'seq' 추가
         w.writerow([
             "ts","direction","id","text","mid_hex","apid_hex","cc_dec",
-            "seq", "len", "src_ip","src_port","head_hex16","text_hex","bits"
+            "seq", "len", "src_ip","src_port","head_hex16","text_hex","bits",
+            "payload_hex","payload_bits"
         ])
     return f, w
 
@@ -41,6 +42,14 @@ def to_hex(b: bytes) -> str:
 
 def bytes_to_bits(b: bytes) -> str:
     return "".join(f"{x:08b}" for x in b)
+
+def extract_send_text_payload_bytes(data: bytes) -> bytes:
+    mid, _, cc = parse_mid_apid_cc(data)
+    if mid != SAMPLE_APP_CMD_MID or cc != SEND_TEXT_CC:
+        return b""
+    if len(data) <= 8:
+        return b""
+    return data[8:].split(b'\x00', 1)[0]
 
 def parse_mid_apid_cc(data: bytes):
     mid = apid = cc = None
@@ -147,6 +156,11 @@ def main():
         bits = bytes_to_bits(text_bytes)
         if bits:
             bits = "b:" + bits
+        payload_bytes = extract_send_text_payload_bytes(data)
+        payload_hex = to_hex(payload_bytes)
+        payload_bits = bytes_to_bits(payload_bytes)
+        if payload_bits:
+            payload_bits = "b:" + payload_bits
 
         # CSV 기록 (seq 포함)
         writer.writerow([
@@ -162,7 +176,9 @@ def main():
             src_ip, src_port,
             head_hex16,
             text_hex,
-            bits
+            bits,
+            payload_hex,
+            payload_bits
         ])
 
         # 포워딩

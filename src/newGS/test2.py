@@ -62,15 +62,33 @@ def apply_config_overrides(args, cfg: dict):
 def now_ts(): return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 def be16(b: bytes): return unpack(">H", b)[0]
 def extract_mid(pkt: bytes): return be16(pkt[0:2]) if len(pkt) >= 2 else -1
+def extract_cc(pkt: bytes): return pkt[6] if len(pkt) > 6 else -1
 def extract_seq_count(pkt: bytes):
     if len(pkt) >= 4: return ((pkt[2] & 0x3F) << 8) | pkt[3]
     return -1
+def text_region_for_cmd_1882(pkt: bytes, text_off=8, text_max=128):
+    if len(pkt) < text_off:
+        return None
+    end = min(len(pkt), int(text_off) + int(text_max))
+    raw = pkt[int(text_off):end]
+    nul = raw.find(b"\x00")
+    if nul >= 0:
+        end = int(text_off) + nul
+    return (int(text_off), end)
 def text_region_for_tlm_08a9(pkt: bytes, len_off=12, text_off=14, text_max=128):
     if len(pkt) < text_off: return None
     try: text_len = be16(pkt[len_off:len_off+2])
     except: return None
     text_len = max(0, min(int(text_len), int(text_max)))
     return (int(text_off), min(len(pkt), int(text_off) + text_len))
+def payload_region_for_attack(pkt: bytes, len_off=12, text_off=14, text_max=128):
+    mid = extract_mid(pkt)
+    cc = extract_cc(pkt)
+    if mid == 0x1882 and cc == 3:
+        return text_region_for_cmd_1882(pkt)
+    if mid == 0x08A9:
+        return text_region_for_tlm_08a9(pkt, len_off, text_off, text_max)
+    return None
 
 def flip_bits_inplace(buf: bytearray, ber: float, rng: random.Random, start=0, end=None):
     if ber <= 0.0: return
@@ -125,6 +143,7 @@ class PduSpaceChannel(gr.basic_block):
         except: pass
 
         self._lock = threading.Lock()
+        self._heap_lock = threading.Lock()
         self.message_port_register_in(pmt.intern("pdus"))
         self.set_msg_handler(pmt.intern("pdus"), self._handler)
         self.message_port_register_out(pmt.intern("pdus"))
@@ -159,19 +178,28 @@ class PduSpaceChannel(gr.basic_block):
     def _now_ns(self): return time.monotonic_ns()
     def _schedule_send(self, meta, data, delay_s):
         t = self._now_ns() + int(max(0, delay_s) * 1e9)
-        heapq.heappush(self._send_heap, (t, (meta, data)))
+        with self._heap_lock:
+            heapq.heappush(self._send_heap, (t, (meta, data)))
 
     def _tx_worker(self):
         while not self._stop:
-            if not self._send_heap:
+            with self._heap_lock:
+                has_items = bool(self._send_heap)
+            if not has_items:
                 time.sleep(0.0005)
                 continue
-            t_ns, _ = self._send_heap[0]
+            with self._heap_lock:
+                if not self._send_heap:
+                    continue
+                t_ns, _ = self._send_heap[0]
             curr = self._now_ns()
             if t_ns > curr:
                 time.sleep(min((t_ns - curr)/1e9, 0.001))
                 continue
-            _, (meta, data) = heapq.heappop(self._send_heap)
+            with self._heap_lock:
+                if not self._send_heap:
+                    continue
+                _, (meta, data) = heapq.heappop(self._send_heap)
             m_pmt = pmt.to_pmt(meta) if meta else pmt.PMT_NIL
             d_pmt = pmt.init_u8vector(len(data), list(data))
             self.message_port_pub(pmt.intern("pdus"), pmt.cons(m_pmt, d_pmt))
@@ -184,58 +212,75 @@ class PduSpaceChannel(gr.basic_block):
         except: return
 
         modified = bytearray(data)
-        mode = self.attack_mode
         seq = extract_seq_count(data)
-        
+
         do_attack = False
-        if mode == "drop" and self.burst_remaining > 0: do_attack = True
-        elif mode != "none":
-            if self.rng.random() * 100.0 <= self.attack_prob: do_attack = True
+        drop_burst_remaining = None
+        with self._lock:
+            mode = self.attack_mode
+            attack_prob = self.attack_prob
+            burst_size = self.burst_size
+            jamming_protect = self.jamming_protect
+            jamming_ratio = self.jamming_ratio
+            replay_delay = self.replay_delay
+            base_delay_ms = self.base_delay_ms
+            jitter_ms = self.jitter_ms
+            cur_ber = self.ber
+
+            if mode == "drop" and self.burst_remaining > 0:
+                self.burst_remaining -= 1
+                drop_burst_remaining = self.burst_remaining
+                do_attack = True
+            elif mode != "none":
+                if self.rng.random() * 100.0 <= attack_prob:
+                    do_attack = True
+                    if mode == "drop":
+                        self.burst_remaining = max(0, int(burst_size) - 1)
+                        drop_burst_remaining = self.burst_remaining
 
         if do_attack:
             if mode == "drop":
-                if self.burst_remaining <= 0: self.burst_remaining = self.burst_size
-                self.burst_remaining -= 1
-                self._write_log(seq, "Drop", "Dropped", f"BurstRem={self.burst_remaining}")
-                return 
+                self._write_log(seq, "Drop", "Dropped", f"BurstRem={drop_burst_remaining}")
+                return
 
             elif mode == "jamming":
-                prot = self.jamming_protect
-                if len(modified) > prot:
-                    payload_len = len(modified) - prot
-                    jam_count = int(payload_len * (self.jamming_ratio / 100.0))
+                region = payload_region_for_attack(modified, self.len_off, self.text_off, self.text_max)
+                if region:
+                    s, e = region
+                    s = min(max(s + int(jamming_protect), s), e)
+                    payload_len = max(0, e - s)
+                    jam_count = int(payload_len * (float(jamming_ratio) / 100.0))
                     jam_count = max(0, min(jam_count, payload_len))
-                    for i in range(prot, prot + jam_count):
-                        modified[i] = self.rng.getrandbits(8)
-                self._write_log(seq, "Jamming", "Modified", f"Ratio={self.jamming_ratio}%")
+                    if jam_count > 0:
+                        for idx in self.rng.sample(range(s, e), jam_count):
+                            modified[idx] = self.rng.getrandbits(8)
+                    self._write_log(seq, "Jamming", "Modified", f"Region={s}:{e}, Ratio={jamming_ratio}%")
+                else:
+                    self._write_log(seq, "Jamming", "Skipped", "No payload region")
 
-            elif mode == "replay":
-                # Replay: Original is sent at end, Schedule duplicate here
-                dup_delay = self.replay_delay
-                self._schedule_send(meta, bytes(modified), dup_delay) # Duplicate
-                self._write_log(seq, "Replay", "Scheduled", f"Delay={dup_delay}s")
-                # Original continues to be sent below
         else:
             if mode != "none": self._write_log(seq, mode, "Passed", "Prob check")
 
-        # BER Logic
-        cur_ber = self.ber
+        # BER Logic: payload-only 모드에서는 SAMPLE_APP 텍스트 payload에만 적용
         if cur_ber > 0.0:
             if self.payload_only:
-                mid = extract_mid(modified)
-                if mid == 0x08A9:
-                    region = text_region_for_tlm_08a9(modified, self.len_off, self.text_off, self.text_max)
-                    if region:
-                        s, e = region
-                        flip_bits_inplace(modified, cur_ber, self.rng, s, e)
+                region = payload_region_for_attack(modified, self.len_off, self.text_off, self.text_max)
+                if region:
+                    s, e = region
+                    flip_bits_inplace(modified, cur_ber, self.rng, s, e)
             else:
                 flip_bits_inplace(modified, cur_ber, self.rng)
 
         # Normal Send (with jitter)
-        base = self.base_delay_ms / 1000.0
-        jitter = self.jitter_ms / 1000.0
+        base = base_delay_ms / 1000.0
+        jitter = jitter_ms / 1000.0
         delay_s = max(0.0, self.rng.gauss(base, jitter/3.0)) if jitter > 0 else max(0.0, base)
-        self._schedule_send(meta, bytes(modified), delay_s)
+        final_bytes = bytes(modified)
+        self._schedule_send(meta, final_bytes, delay_s)
+
+        if do_attack and mode == "replay":
+            self._schedule_send(meta, final_bytes, replay_delay)
+            self._write_log(seq, "Replay", "Scheduled", f"Delay={replay_delay}s")
 
     def stop(self):
         self._stop = True
