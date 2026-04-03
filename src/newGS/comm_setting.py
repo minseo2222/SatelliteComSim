@@ -3,7 +3,7 @@
 
 from PyQt5.QtWidgets import (
     QDialog, QFormLayout, QDialogButtonBox, QLineEdit,
-    QDoubleSpinBox, QSpinBox, QComboBox
+    QDoubleSpinBox, QSpinBox, QComboBox, QLabel
 )
 
 class CommSettingsDialog(QDialog):
@@ -27,6 +27,14 @@ class CommSettingsDialog(QDialog):
         layout.addRow("Dest Port",  self.sb_dst_port)
         layout.addRow("MTU",        self.sb_mtu)
 
+        self.lbl_attack_note = QLabel(
+            "payload_only 모드에서는 BER가 Sample App 텍스트 payload에만 적용됩니다. "
+            "헤더, MID, CC, 길이 필드는 변조하지 않습니다."
+        )
+        self.lbl_attack_note.setWordWrap(True)
+        self.lbl_attack_note.setStyleSheet("color: #555;")
+        layout.addRow(self.lbl_attack_note)
+
         # 우주환경 파라미터 (test2 제어용)
         self.ds_delay  = QDoubleSpinBox(); self.ds_delay.setRange(0, 1e6); self.ds_delay.setDecimals(3); self.ds_delay.setValue(d.get("base_delay_ms",0.0)); self.ds_delay.setSuffix(" ms")
         self.ds_jitter = QDoubleSpinBox(); self.ds_jitter.setRange(0, 1e6); self.ds_jitter.setDecimals(3); self.ds_jitter.setValue(d.get("jitter_ms",0.0)); self.ds_jitter.setSuffix(" ms")
@@ -42,14 +50,14 @@ class CommSettingsDialog(QDialog):
         layout.addRow("Seed",   self.sb_seed)
         layout.addRow("BER Mode",   self.cb_mode)
 
-        # SAMPLE_APP 텍스트 오프셋
+        # SAMPLE_APP downlink 텍스트 오프셋
         self.sb_len_off  = QSpinBox(); self.sb_len_off.setRange(0,4096); self.sb_len_off.setValue(d.get("tlm08a9_len_off",12))
         self.sb_text_off = QSpinBox(); self.sb_text_off.setRange(0,4096); self.sb_text_off.setValue(d.get("tlm08a9_text_off",14))
         self.sb_text_max = QSpinBox(); self.sb_text_max.setRange(0,65535); self.sb_text_max.setValue(d.get("tlm08a9_text_max",128))
         
-        layout.addRow("TLM Len Offset", self.sb_len_off)
-        layout.addRow("TLM Text Offset",    self.sb_text_off)
-        layout.addRow("TLM Text Max",    self.sb_text_max)
+        layout.addRow("Downlink Len Offset", self.sb_len_off)
+        layout.addRow("Downlink Text Offset", self.sb_text_off)
+        layout.addRow("Downlink Text Max", self.sb_text_max)
 
         btns = QDialogButtonBox(QDialogButtonBox.Ok|QDialogButtonBox.Cancel)
         btns.accepted.connect(self.accept); btns.rejected.connect(self.reject)

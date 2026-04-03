@@ -54,15 +54,17 @@ class AttackConfigDialog(QDialog):
 
         elif "재밍" in self.mode_kor:
             self.sb_protect = QSpinBox()
-            self.sb_protect.setRange(0, 1024)
+            self.sb_protect.setRange(0, 128)
             self.sb_protect.setValue(int(self.config.get("jamming_protect", 8)))
-            layout.addRow("헤더 보호 (Bytes):", self.sb_protect)
+            self.sb_protect.setToolTip("Sample App 텍스트 payload 앞쪽에서 보호할 바이트 수")
+            layout.addRow("Payload 보호 (Bytes):", self.sb_protect)
             
             self.sb_ratio = QDoubleSpinBox()
             self.sb_ratio.setRange(0.0, 100.0)
             self.sb_ratio.setValue(float(self.config.get("jamming_ratio", 100.0)))
             self.sb_ratio.setSuffix(" %")
-            layout.addRow("훼손 비율 (Ratio):", self.sb_ratio)
+            self.sb_ratio.setToolTip("보호 구간을 제외한 payload 중 랜덤하게 훼손할 비율")
+            layout.addRow("Payload 훼손 비율:", self.sb_ratio)
 
         elif "리플레이" in self.mode_kor:
             self.sb_delay = QDoubleSpinBox()
@@ -211,14 +213,7 @@ class NextGenGroundSystem(QMainWindow):
         self.ROOTDIR = pathlib.Path(__file__).resolve().parent
         self.gs_logic = GroundSystemLogic(self.ROOTDIR, self.show_error_message_box)
         self.test2_process = None
-
-        # [Updated] Replay 포함 기본값
-        self.attack_configs = {
-            "drop": {"prob": 100.0, "burst_size": 1},
-            "jamming": {"prob": 100.0, "jamming_protect": 8, "jamming_ratio": 100.0},
-            "replay": {"prob": 100.0, "replay_delay": 1.0},
-            "none": {}
-        }
+        self.attack_configs = self._default_attack_configs()
 
         self._init_ui()
         self._load_settings()
@@ -296,6 +291,7 @@ class NextGenGroundSystem(QMainWindow):
         self.btn_attack_setting = QPushButton("설정")
         self.btn_attack_setting.clicked.connect(self.open_attack_settings)
         self.btn_attack_setting.setEnabled(False)
+        self.btn_attack_setting.setMinimumHeight(40)
         
         self.btn_attack_start = QPushButton("공격 시작")
         self.btn_attack_start.setCheckable(True)
@@ -303,7 +299,7 @@ class NextGenGroundSystem(QMainWindow):
         self.btn_attack_start.setMinimumHeight(40)
         
         att_ctrl_layout.addWidget(self.btn_attack_setting, 1)
-        att_ctrl_layout.addWidget(self.btn_attack_start, 3)
+        att_ctrl_layout.addWidget(self.btn_attack_start, 1)
         att_layout.addLayout(att_ctrl_layout)
         
         ctrl_layout.addWidget(att_grp)
@@ -316,6 +312,7 @@ class NextGenGroundSystem(QMainWindow):
         self.btn_attack_setting.setEnabled(not is_none)
         if not self.btn_attack_start.isChecked():
             self.btn_attack_start.setEnabled(not is_none)
+        self.settings.setValue("attack/selected_mode", text)
 
     def open_attack_settings(self):
         selected_kor = self.attack_combo.currentText()
@@ -327,7 +324,8 @@ class NextGenGroundSystem(QMainWindow):
         if dlg.exec_() == QDialog.Accepted:
             new_cfg = dlg.get_config()
             self.attack_configs[mode_eng] = new_cfg
-            self.append_terminal_output(f"[설정] {selected_kor} 파라미터 업데이트: {new_cfg}")
+            self._save_attack_settings()
+            self.append_terminal_output(f"[설정] {selected_kor} 파라미터 업데이트: {self._format_attack_summary(mode_eng, new_cfg)}")
             if self.btn_attack_start.isChecked():
                 self._send_attack_config(mode_eng, new_cfg)
 
@@ -346,7 +344,7 @@ class NextGenGroundSystem(QMainWindow):
         self.btn_attack_start.setText("공격 중지" if is_started else "공격 시작")
         self.attack_combo.setEnabled(not is_started)
         if is_started:
-            self.append_terminal_output(f"[공격] {selected_kor} 시작. 설정: {config}")
+            self.append_terminal_output(f"[공격] {selected_kor} 시작. 설정: {self._format_attack_summary(mode_eng, config)}")
         else:
             self.append_terminal_output("[공격] 공격 중지.")
 
@@ -370,15 +368,38 @@ class NextGenGroundSystem(QMainWindow):
 
     # (이하 설정 로드/저장/다이얼로그 메서드는 기존과 동일)
     def _load_settings(self):
+        self.attack_configs = self.settings.value("attack/configs", self._default_attack_configs(), type=dict) or self._default_attack_configs()
         default_sat = getattr(self.earth_view, 'DEFAULT_PARAMS', {})
         sat = self.settings.value("satellite/params", default_sat, type=dict)
         valid = {"sat_type","sat_size","sat_speed","orbital_radius","inclination","eccentricity","frequency","antenna_gain","transmit_power"}
         if sat: self.earth_view.updateSatelliteParameters(**{k:v for k,v in sat.items() if k in valid})
+        base = self.settings.value("basestation/params", {}, type=dict)
+        if base:
+            self.earth_view.updateBaseStationParameters(
+                base.get("gs_name", "Default GS"),
+                base.get("gs_lat", 36.350413),
+                base.get("gs_lon", 127.384548),
+                base.get("gs_alt", 50.0),
+                base.get("min_elevation", 5.0),
+                base.get("gs_antenna_gain", 35.0),
+            )
+        comm = self.settings.value("comm/params", {}, type=dict)
+        if comm:
+            self.earth_view.updateCommParameters(
+                comm.get("base_delay_ms", 0.0),
+                comm.get("jitter_ms", 0.0),
+                comm.get("ber", 0.0),
+                comm.get("mode", "payload_only"),
+            )
         self.cb_tlm_header.setCurrentText(self.settings.value("offsets/tlm_ver", self.DEFAULT_TLM_HDR_VER, str))
         self.sb_tlm_offset.setValue(self.settings.value("offsets/tlm_offset", self.DEFAULT_TLM_OFFSET, int))
         self.cb_cmd_header.setCurrentText(self.settings.value("offsets/cmd_ver", self.DEFAULT_CMD_HDR_VER, str))
         self.sb_cmd_pri.setValue(self.settings.value("offsets/cmd_pri", self.DEFAULT_CMD_OFFSET_PRI, int))
         self.sb_cmd_sec.setValue(self.settings.value("offsets/cmd_sec", self.DEFAULT_CMD_OFFSET_SEC, int))
+        saved_mode = self.settings.value("attack/selected_mode", "없음", str)
+        idx = self.attack_combo.findText(saved_mode)
+        if idx >= 0:
+            self.attack_combo.setCurrentIndex(idx)
         self.append_terminal_output("[시스템] 설정 로드 완료.")
 
     def _save_settings(self):
@@ -387,12 +408,42 @@ class NextGenGroundSystem(QMainWindow):
         self.settings.setValue("offsets/cmd_ver", self.cb_cmd_header.currentText())
         self.settings.setValue("offsets/cmd_pri", self.sb_cmd_pri.value())
         self.settings.setValue("offsets/cmd_sec", self.sb_cmd_sec.value())
+        self._save_attack_settings()
+
+    def _default_attack_configs(self):
+        return {
+            "drop": {"prob": 100.0, "burst_size": 1},
+            "jamming": {"prob": 100.0, "jamming_protect": 8, "jamming_ratio": 100.0},
+            "replay": {"prob": 100.0, "replay_delay": 1.0},
+            "none": {}
+        }
+
+    def _save_attack_settings(self):
+        self.settings.setValue("attack/configs", self.attack_configs)
+
+    def _format_attack_summary(self, mode, config):
+        if mode == "drop":
+            return f"prob={config.get('prob', 100.0)}%, burst={config.get('burst_size', 1)}"
+        if mode == "jamming":
+            return (
+                f"prob={config.get('prob', 100.0)}%, "
+                f"payload_protect={config.get('jamming_protect', 8)}B, "
+                f"payload_ratio={config.get('jamming_ratio', 100.0)}%"
+            )
+        if mode == "replay":
+            return f"prob={config.get('prob', 100.0)}%, delay={config.get('replay_delay', 1.0)}s"
+        return "none"
 
     def openBaseStationSettings(self):
         dlg = BaseStationSettingsDialog(self)
         dlg.setParameters(self.settings.value("basestation/params", {}, dict))
         if dlg.exec_() == QDialog.Accepted:
-            self.settings.setValue("basestation/params", dlg.getParameters())
+            params = dlg.getParameters()
+            self.settings.setValue("basestation/params", params)
+            self.earth_view.updateBaseStationParameters(
+                params["gs_name"], params["gs_lat"], params["gs_lon"],
+                params["gs_alt"], params["min_elevation"], params["gs_antenna_gain"]
+            )
             self.append_terminal_output("[시스템] 기지국 설정 저장.")
 
     def openSatelliteSettings(self):
@@ -406,8 +457,15 @@ class NextGenGroundSystem(QMainWindow):
     def openCommSettings(self):
         dlg = CommSettingsDialog(self, defaults=self.settings.value("comm/params", {}, dict))
         if dlg.exec_() != QDialog.Accepted: return
-        self.settings.setValue("comm/params", dlg.get())
-        with open(self.ROOTDIR/"test2_config.json", "w") as f: json.dump(dlg.get(), f, indent=2)
+        params = dlg.get()
+        self.settings.setValue("comm/params", params)
+        self.earth_view.updateCommParameters(
+            params.get("base_delay_ms", 0.0),
+            params.get("jitter_ms", 0.0),
+            params.get("ber", 0.0),
+            params.get("mode", "payload_only"),
+        )
+        with open(self.ROOTDIR/"test2_config.json", "w") as f: json.dump(params, f, indent=2)
         if not self._is_test2_running():
             self._start_test2(self.ROOTDIR/"test2_config.json")
         else:

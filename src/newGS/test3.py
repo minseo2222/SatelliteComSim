@@ -37,23 +37,29 @@ def is_sample_text(hdr):
     sid = hdr["sid"]; apid = hdr["apid"]
     return (sid in FILTER_SID) or (apid in FILTER_APID)
 
-def extract_text(pkt: bytes) -> str:
-    """SAMPLE_APP Text TLM (포맷 A/B 시도)"""
-    # A 포맷: [12:14]=Len, [14:]=Text
+def extract_text_bytes(pkt: bytes) -> bytes:
     if len(pkt) >= 14:
         try:
-            text_len = (pkt[12] << 8) | pkt[13]
-            text_raw = pkt[14:14+min(128, len(pkt)-14)]
-            text = text_raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
-            if text_len > len(text): text_len = len(text)
-            if text: return text[:text_len] if text_len else text
-        except Exception: pass
-    # B 포맷
+            # SAMPLE_TextTlm_t의 TextLen은 현재 런타임에서 little-endian으로 들어온다.
+            text_len = pkt[12] | (pkt[13] << 8)
+            text_len = max(0, min(text_len, 128, len(pkt) - 14))
+            return pkt[14:14 + text_len]
+        except Exception:
+            pass
     if len(pkt) > 8:
+        return pkt[8:].split(b"\x00", 1)[0]
+    return b""
+
+def extract_text(pkt: bytes) -> str:
+    """SAMPLE_APP Text TLM (포맷 A/B 시도)"""
+    raw = extract_text_bytes(pkt)
+    if raw:
         try:
-            text = pkt[8:].replace(b"\x00", b"").decode("utf-8", errors="ignore")
-            if ":" in text: return text.strip()
-        except Exception: pass
+            text = raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+            if text:
+                return text
+        except Exception:
+            pass
     return ""
 
 def split_id_text(text: str):
@@ -68,7 +74,8 @@ def main():
     # [수정] CSV 헤더에 'seq' 추가 (test1과 통일)
     ensure_csv_header(RECV_CSV, [
         "ts","direction","id","text","mid_hex","apid_hex","cc_dec",
-        "seq", "len", "src_ip","src_port","head_hex16","text_hex","bits"
+        "seq", "len", "src_ip","src_port","head_hex16","text_hex","bits",
+        "payload_hex","payload_bits"
     ])
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -89,6 +96,7 @@ def main():
 
         if not is_sample_text(hdr): continue
 
+        raw_payload = extract_text_bytes(data)
         text = extract_text(data)
         sid_str, text_body = split_id_text(text)
 
@@ -100,6 +108,9 @@ def main():
         text_hex   = to_hex(text_bytes)
         bits = bytes_to_bits(text_bytes)
         if bits: bits = "b:" + bits
+        payload_hex = to_hex(raw_payload)
+        payload_bits = bytes_to_bits(raw_payload)
+        if payload_bits: payload_bits = "b:" + payload_bits
 
         with open(RECV_CSV, "a", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow([
@@ -108,7 +119,8 @@ def main():
                 (cc if cc is not None else ""), 
                 hdr['seq'], # [수정] Seq 저장
                 len(data),
-                src_ip, src_port, head_hex16, text_hex, bits
+                src_ip, src_port, head_hex16, text_hex, bits,
+                payload_hex, payload_bits
             ])
 
 if __name__ == "__main__":

@@ -1,8 +1,0 @@
-log :warning: `socket_pdu` has moved to gr-network and will be removed from gr-blocks soon. Please update to use network.socket_pdu()
-[TEST2] Log initialized: attack_log.csv
-log :warning: `socket_pdu` has moved to gr-network and will be removed from gr-blocks soon. Please update to use network.socket_pdu()
-[TEST2] Mode: drop
-[TEST2] Mode: none
-[TEST2] Mode: jamming
-[TEST2] Mode: none
-[TEST2] Mode: replay
