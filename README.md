@@ -132,7 +132,7 @@ make
 ### 8-1. 첫 번째 터미널: cFS 실행
 
 ```bash
-cd ~/SatelliteComSim/runtime/linux-x86_64/cpu1
+cd ~/SatelliteComSim/src/cFS/build/exe/cpu1
 sudo ./core-cpu1
 ```
 
